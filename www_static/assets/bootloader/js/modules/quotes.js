@@ -55,7 +55,43 @@ export const LOADING_QUOTES = [
   },
   { text: 'renacimiento de la discord', submittedBy: 'ErrorOliver' },
   {
-    text: 'welcome to a skype call- GET OUTTA HERE SKYPE',
+    text: 'welcome to a skype call- get outta here skype, this is discord not skype!',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'I was thinking of adding a super long quote here, but I decided otherwise. Hi Oldcordians!',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: '｡ﾟ･ (>﹏<) ･ﾟ｡',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'Chaos in Oldcord Land ｡ﾟ･ (>﹏<) ･ﾟ｡',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'when lfg channels',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'The enshittification of 2020!',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'Error 404: Quote not found.',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: "For a dial-up connection, you will need your account name, password, and a phone number for your ISP. For a broadband account, you won't need a phone number.",
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'Remember when Hypesquad existed?',
+    submittedBy: 'ErrorOliver',
+  },
+  {
+    text: 'Hampsterdance!',
     submittedBy: 'ErrorOliver',
   },
   // Quotes from the official Discord app
