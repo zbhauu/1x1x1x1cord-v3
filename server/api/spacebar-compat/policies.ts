@@ -35,7 +35,7 @@ router.get('/instance/config', (_req: Request, res: Response) => {
     register_allowNewRegistration: true,
     register_allowMultipleAccounts: true,
     guild_autoJoin_canLeave: true,
-    guild_autoJoin_guilds_x: [],
+    guild_autoJoin_guilds_x: config.instance.flags.flatMap(x => x.toLowerCase().startsWith("autojoin:") ? [x.toLowerCase().replace("autojoin:", "")] : []),
     register_email_required: true,
     can_recover_account: false, //Uhh depends really
   };

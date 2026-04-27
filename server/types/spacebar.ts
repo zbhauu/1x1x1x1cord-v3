@@ -25,7 +25,7 @@ export interface SpacebarInstanceConfig {
     register_allowNewRegistration: boolean;
     register_allowMultipleAccounts: boolean;
     guild_autoJoin_canLeave: boolean;
-    guild_autoJoin_guilds_x: string[]; //Look into what this is and decide the proper type. To-do.
+    guild_autoJoin_guilds_x: string[];
     register_email_required: boolean;
     can_recover_account: boolean;
 };
