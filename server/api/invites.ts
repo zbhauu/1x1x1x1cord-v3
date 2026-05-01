@@ -111,8 +111,6 @@ router.post(
 
       const invite = req.invite;
 
-      let guild = req.guild;
-
       const usersGuild = await prisma.guild.count({
         where: {
           members: {
@@ -140,12 +138,6 @@ router.post(
 
       let joinAttempt = true;
 
-      const member = guild.members?.find((x) => x.user.id === sender.id);
-
-      if (member != null) {
-        joinAttempt = false;
-      }
-
       if (invite.max_uses && invite.max_uses != 0 && invite.uses!! >= invite.max_uses) {
         await prisma.invite.delete({
           where: {
@@ -159,7 +151,7 @@ router.post(
       const banCount = await prisma.ban.count({
         where: {
           user_id: sender.id,
-          guild_id: guild.id
+          guild_id: invite.guild.id
         }
       })
 
@@ -170,7 +162,7 @@ router.post(
       await prisma.member.create({
         data: {
           user_id: sender.id,
-          guild_id: guild.id,
+          guild_id: invite.guild.id,
           joined_at: new Date().toISOString(),
           roles: [],
           nick: null,
@@ -194,9 +186,15 @@ router.post(
         return res.status(404).json(errors.response_404.UNKNOWN_INVITE);
       }
 
-      await dispatcher.dispatchEventTo(sender.id, 'GUILD_CREATE', GuildService._formatResponse(guild));
+      let guild = await GuildService.getById(invite.guild.id);
 
-      await dispatcher.dispatchEventInGuild(guild.id, 'GUILD_MEMBER_ADD', {
+      if (!guild) {
+          return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+      }
+
+      await dispatcher.dispatchEventTo(sender.id, 'GUILD_CREATE', guild);
+
+      await dispatcher.dispatchEventInGuild(invite.guild.id, 'GUILD_MEMBER_ADD', {
         roles: [],
         user: globalUtils.miniUserObject(sender),
         guild_id: invite.guild.id,
@@ -206,7 +204,7 @@ router.post(
         nick: null,
       });
 
-      await dispatcher.dispatchEventInGuild(guild.id, 'PRESENCE_UPDATE', {
+      await dispatcher.dispatchEventInGuild(invite.guild.id, 'PRESENCE_UPDATE', {
         ...globalUtils.getUserPresence({
           user: globalUtils.miniUserObject(sender),
         }),
@@ -236,6 +234,8 @@ router.post(
         );
       }
 
+      delete invite.uses;
+      
       return res.status(200).send(invite);
     } catch (error) {
       logText(error, 'error');

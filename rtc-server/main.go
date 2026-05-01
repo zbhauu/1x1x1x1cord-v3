@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,7 +20,6 @@ import (
 )
 
 const Port = 3240
-const PublicIP = "192.168.1.27" //Change this before you deploy
 
 var (
     pendingSessions = make(map[string]SyncData)
@@ -27,6 +27,7 @@ var (
 	clients = make(map[string]*RTCClient)
 	clientsMu sync.RWMutex
 	RTC_SECRET_KEY string
+	IP string
 )
 
 func VerifyConnection(serverId string, userId string, sessionId string, token string) (SyncData, bool) {
@@ -133,6 +134,88 @@ func ReconstructSDP(fragment string) (string, error) {
     return string(marshaled), err
 }
 
+func BroadcastToClients(serverId string, payload interface{}) {
+	clientsMu.RLock();
+	defer clientsMu.RUnlock();
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	for _, client := range clients {
+		if client.ServerID == serverId {
+			err := client.Socket.Write(context.Background(), websocket.MessageText, data)
+			if err != nil {
+				fmt.Printf("Failed to broadcast packet to %s: %v\n", client.UserID, err)
+			}
+		}
+	}
+}
+
+func SubscribeUserToTrack(subscriber *RTCClient, remoteTrack *webrtc.TrackRemote) {
+	if subscriber.PeerConnection == nil {
+		return
+	}
+
+    localTrack, err := webrtc.NewTrackLocalStaticRTP(
+        remoteTrack.Codec().RTPCodecCapability, 
+        remoteTrack.ID(), 
+        remoteTrack.StreamID(),
+    )
+    if err != nil {
+        fmt.Printf("Failed to create local track: %v\n", err)
+        return
+    }
+
+    sender, err := subscriber.PeerConnection.AddTrack(localTrack)
+    if err != nil {
+        fmt.Printf("Failed to add track to PC: %v\n", err)
+        return
+    }
+
+    subscriber.mu.Lock()
+
+    if subscriber.SubscribedTracks == nil {
+        subscriber.SubscribedTracks = make(map[string]*webrtc.RTPSender)
+    }
+
+    subscriber.SubscribedTracks[remoteTrack.ID()] = sender
+    subscriber.mu.Unlock()
+
+	fmt.Printf("Subscribed to track from %s\n", subscriber.UserID)
+
+    rtpBuf := make([]byte, 1500)
+    for {
+        n, _, err := remoteTrack.Read(rtpBuf)
+        if err != nil {
+            return 
+        }
+
+        if _, err = localTrack.Write(rtpBuf[:n]); err != nil {
+            return 
+        }
+    }
+}
+
+func CheckAndForwardExistingTracks(serverId string, userId string) {
+	clientsMu.RLock();
+	defer clientsMu.RUnlock();
+
+	contextClient, ok := clients[userId]
+    if !ok {
+        return
+    }
+
+	for _, otherClient := range clients {
+        if otherClient.UserID != userId && otherClient.ServerID == serverId {
+            if otherClient.AudioTrack != nil {
+                go SubscribeUserToTrack(contextClient, otherClient.AudioTrack)
+            }
+        }
+    }
+}
+
 func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 	c, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -149,13 +232,15 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 
     defer func() {
         if currentUserID != "" {
-			if clients[currentUserID].PeerConnection != nil {
-				clients[currentUserID].PeerConnection.Close()
+			clientsMu.Lock()
+			client, exists := clients[currentUserID]
+			if exists {
+				client.Close()
+				delete(clients, currentUserID)
 			}
-
-            RemoveClient(currentUserID)
-            fmt.Printf("User %s disconnected.\n", currentUserID)
-        }
+			clientsMu.Unlock()
+			fmt.Printf("User %s disconnected.\n", currentUserID)
+		}
     }()
 
 	ctx := request.Context()
@@ -178,8 +263,6 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
             fmt.Println("Read error:", err)
             return
         }
-
-		Client := clients[currentUserID]
 
 		switch msg.Op {
 			
@@ -206,7 +289,7 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 
 				fmt.Printf("User %s verified for server %s\n", d.UserID, d.ServerID)
 
-				client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, 1234, d.Video)
+				client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, 1234, d.Video, c)
 				currentUserID = client.UserID
 
 				AddClient(client)
@@ -225,6 +308,8 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 						"heartbeat_interval" : 41250,
 					},
 				})
+
+				CheckAndForwardExistingTracks(client.ServerID, client.UserID)
 			case int(OpHeartbeat):
 				wsjson.Write(ctx, c, map[string]interface{}{
 					"op": OpHeartbeatAck,
@@ -254,75 +339,7 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 					sdpFragment = data.Data
 				}
 
-
-				pc, err := webrtc.NewPeerConnection(webrtc.Configuration{
-					ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
-				})
-				if err != nil { fmt.Println("failed to make new pc "); return }
-
-				pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-					if track.Kind() == webrtc.RTPCodecTypeAudio {
-						Client.AudioTrack = track
-					} else {
-						Client.VideoTrack = track
-					}
-				})
-
-				fullOffer, err := ReconstructSDP(sdpFragment)
-
-				if err != nil {
-					fmt.Println("Failed to reconstruct sdp fragment into full SDP!")
-					return
-				}
-
-				fmt.Println(fullOffer)
-
-				if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: fullOffer}); err != nil {
-					fmt.Printf("Pion Error Detail: %v\n", err)
-					return
-				}
-
-				answer, _ := pc.CreateAnswer(nil)
-				if err := pc.SetLocalDescription(answer); err != nil {
-					fmt.Println("failed to set local description")
-
-					return 
-				}
-
-				sctp := pc.SCTP().Transport()
-				dtlsParams, _ := sctp.GetLocalParameters()
-				iceParams, _  := sctp.ICETransport().GetLocalParameters()
-
-				fingerprint := dtlsParams.Fingerprints[0].Value
-
-				sdpAnswer := fmt.Sprintf(
-					"m=audio %d ICE/SDP\n"+
-					"c=IN IP4 %s\n"+
-					"a=rtcp:%d\n"+
-					"a=ice-ufrag:%s\n"+
-					"a=ice-pwd:%s\n"+
-					"a=fingerprint:sha-256 %s\n"+
-					"a=candidate:1 1 UDP 1076302079 %s %d typ host\n",
-					Port, 
-					PublicIP, 
-					Port, 
-					iceParams.UsernameFragment, 
-					iceParams.Password, 
-					fingerprint,
-					PublicIP,
-					Port,
-				)
-
-				Client.PeerConnection = pc
-
-				wsjson.Write(ctx, c, map[string]interface{}{
-					"op": OpAnswer,
-					"d": map[string]interface{}{
-						"sdp":         sdpAnswer,
-						"audio_codec": "opus",
-						"video_codec": "VP8",
-					},
-				})
+				clients[currentUserID].SetupPC(sdpFragment)
 		}
 	}
 }

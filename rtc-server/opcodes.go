@@ -11,6 +11,7 @@ const (
 	OpFiller1 // 5
 	OpHeartbeatAck // 6
 	OpHello = 8
+	OpDisconnect = 13
 )
 
 type Identify struct {

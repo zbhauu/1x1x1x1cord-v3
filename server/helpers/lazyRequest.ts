@@ -87,9 +87,11 @@ const lazyRequest = {
         p.status = forcedStatus;
       }
 
-      return {
-        member: member,
-        presence: p,
+       return {
+        member: {
+          ...member,
+          presence: p,
+        },
       };
     }
 
@@ -239,6 +241,15 @@ const lazyRequest = {
     } //kick causes that error
 
     session.memberListCache[channel.id] = items;
+ 
+    console.log(JSON.stringify({
+      guild_id: guild.id,
+      id: list_id,
+      ops: ops,
+      groups: groups,
+      member_count: count,
+      online_count: onlineCount,
+    }));
 
     session.dispatch('GUILD_MEMBER_LIST_UPDATE', {
       guild_id: guild.id,
@@ -347,8 +358,6 @@ const lazyRequest = {
             };
           }
         }
-
-
 
         return null;
       },

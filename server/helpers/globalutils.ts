@@ -329,6 +329,9 @@ const globalUtils = {
     const guildMembers = await prisma.member.findMany({
       where: {
         guild_id: guild_id
+      },
+      include: {
+        user: true
       }
     }); //??
 

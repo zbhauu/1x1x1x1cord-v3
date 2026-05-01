@@ -145,24 +145,22 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
   const { guild_id, channel_id, self_mute, self_deaf } = packet.d;
   const { user_id, session } = socket;
 
-  let current_guild = socket.current_guild_id;
-
   if (!session) {
     return socket.close(4003, 'Not authenticated');
   }
 
   if (guild_id === null && channel_id === null) {
-    if (current_guild && user_id) {
-      const voiceStates = ctx.guild_voice_states.get(current_guild) || [];
+    if (socket.current_guild_id && user_id) {
+      const voiceStates = ctx.guild_voice_states.get(socket.current_guild_id) || [];
       const index = voiceStates.findIndex((x) => x.user_id === user_id);
 
       if (index !== -1) {
         voiceStates.splice(index, 1);
       }
 
-      await dispatcher.dispatchEventInGuild(current_guild, 'VOICE_STATE_UPDATE', {
+      await dispatcher.dispatchEventInGuild(socket.current_guild_id, 'VOICE_STATE_UPDATE', {
         channel_id: null,
-        guild_id: current_guild,
+        guild_id: socket.current_guild_id,
         user_id: user_id,
         session_id: session.id,
         deaf: false,
@@ -176,21 +174,18 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
       socket.current_guild_id = null;
       socket.inCall = false;
     }
+
     return;
   }
 
   session.guild_id = guild_id ?? "0";
   session.channel_id = channel_id ?? "0";
 
-  console.log(session.channel_id);
-
-  if (!current_guild) {
-    current_guild = guild_id;
+  if (!socket.current_guild_id) {
+    socket.current_guild_id = guild_id;
   }
 
-  console.log("current guild lol");
-
-  if (session.channel_id != "0" && current_guild) {
+  if (session.channel_id != "0" && socket.current_guild_id) {
     const channel = await prisma.channel.findUnique({
       where: {
         id: session.channel_id
@@ -202,14 +197,12 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
     });
 
     if (!channel || channel.type !== ChannelType.VOICE || channel.user_limit === undefined) {
-       console.log("current guild lol 2");
-
       return;
     }
   }
 
-  if (current_guild) {
-    await dispatcher.dispatchEventInGuild(current_guild, 'VOICE_STATE_UPDATE', {
+  if (socket.current_guild_id) {
+    await dispatcher.dispatchEventInGuild(socket.current_guild_id, 'VOICE_STATE_UPDATE', {
       channel_id: channel_id,
       guild_id: guild_id,
       user_id: user_id,
@@ -223,8 +216,8 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
     });
   }
 
-  if (current_guild) {
-    const voiceStates = ctx.guild_voice_states.get(current_guild);
+  if (socket.current_guild_id) {
+    const voiceStates = ctx.guild_voice_states.get(socket.current_guild_id);
 
     if (voiceStates && !voiceStates.find((y) => y.user_id === socket.user_id)) {
       voiceStates.push({
@@ -242,7 +235,7 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
     }
   }
   
-  if (!socket.inCall && current_guild) {
+  if (!socket.inCall && socket.current_guild_id) {
     let url = globalUtils.generateRTCServerURL();
     let token = globalUtils.generateString(30);
 
@@ -267,10 +260,7 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
         endpoint: url,
       });
 
-    socket.inCall = true;
-
-    } else {
-      console.log("FAILED TO TELL RTC SERVER!!");
+      socket.inCall = true;
     }
   }
 }
