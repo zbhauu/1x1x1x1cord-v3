@@ -26,6 +26,8 @@ var (
     sessionMu sync.RWMutex
 	clients = make(map[string]*RTCClient)
 	clientsMu sync.RWMutex
+	rooms   = make(map[string]*VoiceRoom)
+    roomsMu sync.Mutex
 	RTC_SECRET_KEY string
 	IP string
 )
@@ -203,6 +205,7 @@ func CheckAndForwardExistingTracks(serverId string, userId string) {
 	defer clientsMu.RUnlock();
 
 	contextClient, ok := clients[userId]
+
     if !ok {
         return
     }
@@ -214,6 +217,104 @@ func CheckAndForwardExistingTracks(serverId string, userId string) {
             }
         }
     }
+}
+
+//So voice (2015* - 2018) works like this * - Depends as webrtc-p2p was only added in Jan 31 2017 and removed sometime in 2019 or so.
+//Client joins the vc -> Sends an Identify payload & Select Protocol with these options, webrtc-p2p, udp, webrtc. 
+//The RTC Server initializes their connection, makes a new voice room (if one is not present for the channel currently), or assigns them an existing one.
+//Afterwards, the server sends a ready payload, with information about the webrtc SFU ip & port or undelying UDP server & port.
+//Shortly thereafter, if the Client chose webrtc, there would be an answer exchanged back from the SFU - outlining the ICE candidates, and DTLS fingerprint, etc. And what codecs, etc the server supports.
+//The client would then send an OP 5 with their SSRC whenever they're speaking (And yes, even though UDP Has no use for SSRCs, they are assigned one anyways - and it tracks their connection, etc props on the RTC server)
+//When the client does speak, it must send encrypted RTP (Real Time Transfer Protocol) packets with the appropriate codec & encryption method. WebRTC does this under the hood with SRTP.
+//Now the problem is, we must handle both WebRTC clients and raw UDP clients, to do this - we can hook the onTrack method of the pion webrtc connection. And get the raw SRTP, decrypt, translate and forward it to other raw UDP clients in the current room.
+//For the other way around, we can just transform the RTP -> decrypt it (if encrypted of course) and pass it to pion with create local track, then forward that to other webrtc clients in the room.
+
+func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context, currentUserID *string) {
+	var d Identify
+
+	if err := json.Unmarshal(msgD, &d); err != nil {
+		fmt.Println("Identify Unmarshal error:", err)
+		return
+	}
+
+	sessionData, ok := VerifySession(d.Token)
+
+	if sessionData.ServerID != d.ServerID && sessionData.UserID != d.UserID && sessionData.SessionID != d.SessionID {
+		fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
+		c.Close(4004, "Authentication failed")
+		return
+	}
+
+	if !ok {
+		fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
+		c.Close(4004, "Authentication failed")
+		return
+	}
+
+	fmt.Printf("User %s verified for server %s\n", d.UserID, d.ServerID)
+
+	client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, 1234, d.Video, c)
+
+	if currentUserID != nil {
+		*currentUserID = d.UserID
+	}
+
+	AddClient(client)
+
+	fmt.Printf("User %s added to active clients.\n", client.UserID)
+
+	wsjson.Write(ctx, c, map[string]interface{}{
+		"op": OpReady,
+		"d": map[string]interface{}{
+			"ssrc":         1234,
+			"ip": IP,
+			"port": Port,
+			"modes": []string{
+				"xsalsa20_poly1305",
+				"plain",
+			},
+			"heartbeat_interval" : 41250,
+		},
+	})
+
+	CheckAndForwardExistingTracks(client.ServerID, client.UserID)
+}
+
+func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID string) {
+	var payload SelectProtocol
+
+	if err := json.Unmarshal(msgD, &payload); err != nil {
+		fmt.Println("SelectProtocol Unmarshal error:", err)
+		return
+	}
+
+	switch(payload.Protocol) {
+		case "udp":
+			var udpInfo UDPData
+
+			if err := json.Unmarshal(payload.Data, &udpInfo); err != nil {
+				fmt.Println("SelectProtocol (UDP) Unmarshal error: ", err)
+				return
+			}
+		case "webrtc":
+			var sdp string
+
+			if err := json.Unmarshal(payload.Data, &sdp); err != nil {
+				fmt.Println("Error parsing initial client offer: ", err)
+				return
+			}
+
+			sdpFragment := payload.SDP
+
+			if sdpFragment == "" {
+				sdpFragment = sdp
+			}
+
+			clients[currentUserID].SetupPC(sdpFragment)
+		default:
+			c.Close(4012, "Unknown protocol")
+			return
+	} //to-do: webrtc-p2p
 }
 
 func handleSignaling(writer http.ResponseWriter, request *http.Request) {
@@ -265,90 +366,17 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
         }
 
 		switch msg.Op {
-			
 			case int(OpIdentify):
-				var d Identify 
-				if err := json.Unmarshal(msg.D, &d); err != nil {
-					fmt.Println("Unmarshal error:", err)
-					continue
-				}
-
-				sessionData, ok := VerifySession(d.Token)
-
-				if sessionData.ServerID != d.ServerID && sessionData.UserID != d.UserID && sessionData.SessionID != d.SessionID {
-					fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
-					c.Close(4004, "Authentication failed")
-					return
-				}
-
-				if !ok {
-					fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
-					c.Close(4004, "Authentication failed")
-					return
-				}
-
-				fmt.Printf("User %s verified for server %s\n", d.UserID, d.ServerID)
-
-				client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, 1234, d.Video, c)
-				currentUserID = client.UserID
-
-				AddClient(client)
-
-				fmt.Printf("User %s added to active clients.\n", client.UserID)
-
-				wsjson.Write(ctx, c, map[string]interface{}{
-					"op": OpReady,
-					"d": map[string]interface{}{
-						"ssrc":         1234,
-						"port": Port,
-						"modes": []string{
-							"xsalsa20_poly1305",
-							"plain",
-						},
-						"heartbeat_interval" : 41250,
-					},
-				})
-
-				CheckAndForwardExistingTracks(client.ServerID, client.UserID)
+				handleIdentify(msg.D, c, ctx, &currentUserID)
 			case int(OpHeartbeat):
 				wsjson.Write(ctx, c, map[string]interface{}{
 					"op": OpHeartbeatAck,
 					"d":  msg.D,
 				})
 			case int(OpSelectProtocol):
-				var data struct {
-					Protocol string `json:"protocol"`
-					Data     string `json:"data"`
-					SDP      string `json:"sdp"`
-				}
-
-				if err := json.Unmarshal(msg.D, &data); err != nil {
-					fmt.Println("SelectProtocol Unmarshal error:", err)
-					continue
-				}
-
-				fmt.Println("Received Select Protocol for", data.Protocol)
-
-				if data.Protocol != "webrtc" {
-					c.Close(4012, "Unknown protocol") // currently only webrtc is supported in this version of rtc-server
-					return
-				}
-
-				sdpFragment := data.SDP
-				if sdpFragment == "" {
-					sdpFragment = data.Data
-				}
-
-				clients[currentUserID].SetupPC(sdpFragment)
+				handleSelectProtocol(msg.D, c, currentUserID)
 		}
 	}
-}
-
-type SyncData struct {
-	UserID string `json:"user_id"`
-	ServerID  string `json:"server_id"`
-	SessionID string `json:"session_id"`
-	Token string `json:"token"`
 }
 
 func AddSession(data SyncData) {
@@ -401,9 +429,9 @@ func main() {
 	}
 
 	RTC_SECRET_KEY = os.Getenv("RTC_SECRET_KEY");
-	IP := GetOutboundIP()
+	IP = GetOutboundIP().String()
 	http.HandleFunc("/", handleSignaling);
 	http.HandleFunc("/internal/sync", handleSync)
-	fmt.Println("[OLDCORD] RTC Server v2.0 is up on " + IP.To16().String() + ":" + strconv.Itoa(Port))
+	fmt.Println("[OLDCORD] RTC Server v2.0 is up on " + IP + ":" + strconv.Itoa(Port))
 	log.Fatal(http.ListenAndServe(":" + strconv.Itoa(Port), nil))
 }

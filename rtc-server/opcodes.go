@@ -1,5 +1,7 @@
 package main
 
+import "encoding/json"
+
 type OpCode int
 
 const (
@@ -30,11 +32,24 @@ type Codec struct {
 	RtxPayloadType int32 `json:"rtx_payload_type"`
 }
 
+type SyncData struct {
+	UserID string `json:"user_id"`
+	ServerID  string `json:"server_id"`
+	SessionID string `json:"session_id"`
+	Token string `json:"token"`
+}
+
 type SelectProtocol struct {
 	Protocol string `json:"protocol"`
-	Data string `json:"data"`
+	Data json.RawMessage `json:"data"`
 	SDP string `json:"sdp,omitempty"`
 	Codecs []Codec `json:"codecs"`
+}
+
+type UDPData struct {
+    Address string `json:"address"`
+    Port    uint16 `json:"port"`
+    Mode    string `json:"mode"`
 }
 
 type Ready struct {

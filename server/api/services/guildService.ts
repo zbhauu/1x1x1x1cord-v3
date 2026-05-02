@@ -47,7 +47,17 @@ export const GuildService = {
                     mentionable: role.mentionable
                 };
             }) || [],
-            emojis: (guild.custom_emojis as any[]) || [],
+            emojis: guild.custom_emojis.map((custom_emoji: any) => {
+                return {
+                    id: custom_emoji.id,
+                    name: custom_emoji.name,
+                    roles: [],
+                    require_colons: true,
+                    managed: false,
+                    animated: custom_emoji.name.includes("a_"),
+                    user: custom_emoji.user
+                }
+            }) || [],
             channels: guild.channels
             ? guild.channels.map((channel: any) => {
                 return ChannelService._formatChannelObjectSimple(channel);

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -46,6 +47,8 @@ func (c *RTCClient) Close() {
 }
 
 func (c *RTCClient) MakeAnswer(Port int32, IP string, UsernameFragment string, Password string, fingerprint string) string {
+	fingerprint = strings.ToUpper(strings.TrimSpace(fingerprint))
+
 	sdpAnswer := fmt.Sprintf(
 		"m=audio %d ICE/SDP\n"+
 		"c=IN IP4 %s\n"+
@@ -111,18 +114,36 @@ func (c *RTCClient) SetupPC(sdpFragment string) {
 	
 	c.PeerConnection = pc
 
+	outputTrack, _ := webrtc.NewTrackLocalStaticRTP(
+        webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, 
+        "audio", 
+        "pion",
+    )
+
+	vc := CreateVoiceClient(c.UserID, c.SSRC, true, c, nil, outputTrack)
+	vc.JoinRoom(c.ServerID) //move to channel
+
+	fmt.Println("I'm up waiting")
+
 	pc.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		fmt.Printf("New track: %s\n", remoteTrack.Kind().String())
+
 		if remoteTrack.Kind() == webrtc.RTPCodecTypeAudio {
 			c.AudioTrack = remoteTrack
-
 			clientsMu.RLock()
 
-			for _, otherClient := range clients {
-				if otherClient.UserID != c.UserID && otherClient.ServerID == c.ServerID {
-					go SubscribeUserToTrack(otherClient, remoteTrack)
-				}
-			}
-			
+			go func() {
+                for {
+                    rtpPacket, _, err := remoteTrack.ReadRTP()
+
+                    if err != nil { return }
+
+                    if vc.CurrentRoom != nil {
+                        vc.CurrentRoom.Broadcast(rtpPacket, vc)
+                    }
+                }
+            }()
+
 			clientsMu.RUnlock()
 		}
 	})

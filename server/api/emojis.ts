@@ -87,7 +87,11 @@ router.post('/', guildPermissionsMiddleware('MANAGE_EMOJIS'), async (req: Reques
 
     writeFileSync(filePath, imageBuffer);
 
-    const custom_emojis = guild.emojis!!;
+    const custom_emojis = guild.emojis;
+
+    if (!custom_emojis) {
+       return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+    }
 
     custom_emojis.push({
       id: emoji_id,
