@@ -23,6 +23,7 @@ import (
 
 type RTCClient struct {
 	ServerID               string
+	ChannelID 			   string
 	UserID                 string
 	SessionID              string
 	Token                  string
@@ -53,11 +54,12 @@ type PublishedWebRTCTrack struct {
 	stop  chan struct{}
 }
 
-func NewRTCClient(userID string, serverID string, sessionId string, token string, ssrc uint32, video bool, socket *websocket.Conn) *RTCClient {
+func NewRTCClient(userID string, serverID string, channelID string, sessionId string, token string, ssrc uint32, video bool, socket *websocket.Conn) *RTCClient {
 	return &RTCClient{
 		ServerID:  serverID,
 		UserID:    userID,
 		SessionID: sessionId,
+		ChannelID: channelID,
 		Token:     token,
 		Video:     video,
 		Socket:    socket,
@@ -145,7 +147,7 @@ func (c *RTCClient) HandleUDP(payload []byte) {
 	lastRTP[c.SSRC] = time.Now().UnixMilli()
 	lastRTPMu.Unlock()
 
-	TryBroadcastUDP(packet, c.ServerID, c.UserID, c.SSRC)
+	TryBroadcastUDP(packet, c.ChannelID, c.UserID, c.SSRC)
 }
 
 func (c *RTCClient) SendSpeakingEvent(UserID string, SSRC uint32) {

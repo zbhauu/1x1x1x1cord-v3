@@ -42,6 +42,7 @@ type Codec struct {
 type SyncData struct {
 	UserID string `json:"user_id"`
 	ServerID  string `json:"server_id"`
+	ChannelID string `json:"channel_id"`
 	SessionID string `json:"session_id"`
 	Token string `json:"token"`
 }

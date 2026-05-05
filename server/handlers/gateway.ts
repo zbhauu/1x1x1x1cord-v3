@@ -246,6 +246,7 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
       body: JSON.stringify({
         user_id: socket.session.user.id,
         server_id: guild_id,
+        channel_id: channel_id,
         session_id: session.id,
         token: token
       }),

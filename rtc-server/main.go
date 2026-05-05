@@ -88,7 +88,7 @@ func FindClientBySSRC(ssrc uint32) *RTCClient {
 	return nil
 }
 
-func TryBroadcastUDP(p *rtp.Packet, serverId string, senderID string, senderSSRC uint32) {
+func TryBroadcastUDP(p *rtp.Packet, channelId string, senderID string, senderSSRC uint32) {
 	clientsMu.RLock()
 	defer clientsMu.RUnlock()
 
@@ -113,7 +113,7 @@ func TryBroadcastUDP(p *rtp.Packet, serverId string, senderID string, senderSSRC
 	speakingStateMu.Unlock()
 
 	for _, client := range clients {
-		if client.ServerID != serverId || client.SSRC == senderSSRC {
+		if client.ChannelID != channelId || client.SSRC == senderSSRC {
 			continue
 		}
 
@@ -172,10 +172,10 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 		return
 	}
 
-	fmt.Printf("User %s verified for server %s\n", d.UserID, d.ServerID)
+	fmt.Printf("User %s verified for server %s -> channel %s\n", d.UserID, d.ServerID, sessionData.ChannelID)
 
 	ssrc := generateSSRC()
-	client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, ssrc, d.Video, c)
+	client := NewRTCClient(d.UserID, d.ServerID, sessionData.ChannelID, d.SessionID, d.Token, ssrc, d.Video, c)
 
 	if currentUserID != nil {
 		*currentUserID = d.UserID
@@ -471,7 +471,7 @@ func handleSpeaking(msgD json.RawMessage, c *websocket.Conn, currentUserID strin
 	lastRTPMu.Unlock()
 
 	for _, other := range clients {
-		if other.ServerID == client.ServerID && other.SSRC != client.SSRC {
+		if other.ChannelID == client.ChannelID && other.SSRC != client.SSRC {
 			other.SendSpeakingEvent(client.UserID, client.SSRC)
 		}
 	}
