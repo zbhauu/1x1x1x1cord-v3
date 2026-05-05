@@ -258,6 +258,23 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 	})
 }
 
+func GetWebRTCP2PPeers(exclusionId string) ([]string) {
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+
+	var outPeers []string
+	
+	if len(clients) > 0 {
+		for _, client := range clients {
+			if client.UserID != exclusionId {
+				outPeers = append(outPeers, client.UserID)
+			}
+		}
+	}
+
+	return outPeers
+}
+
 func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID string) {
 	var payload SelectProtocol
 
@@ -281,7 +298,7 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 			}
 
 			wsjson.Write(context.Background(), c, map[string]interface{}{
-				"op": 4,
+				"op": OpAnswer,
 				"d": map[string]interface{}{
 					"mode": "plain",
 					"secret_key": nil,
@@ -302,10 +319,52 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 			}
 
 			clients[currentUserID].SetupPC(sdpFragment, payload.Codecs)
+		case "webrtc-p2p":
+			peers := GetWebRTCP2PPeers(currentUserID)
+
+			wsjson.Write(context.Background(), c, map[string]interface{}{
+				"op": OpAnswer,
+				"d": map[string]interface{}{
+					"peers": peers,
+				},
+			})
 		default:
 			c.Close(4012, "Unknown protocol")
 			return
 	} //to-do: webrtc-p2p
+}
+
+func handleSignal(msgD json.RawMessage, currentUserID string) {
+	var payload Signal
+
+	if err := json.Unmarshal(msgD, &payload); err != nil {
+		fmt.Println("Signal Unmarshal error:", err)
+		return
+	}
+
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+	recipient := clients[payload.UserID]
+
+    if recipient == nil {
+        fmt.Printf("Couldn't forward webrtc-p2p signal to %s\n", payload.UserID)
+        return
+    }
+
+	payload.UserID = currentUserID
+
+	forwarded := map[string]interface{}{
+        "op": OpSignal,
+        "d":  payload,
+    }
+
+	err := wsjson.Write(context.Background(), recipient.Socket, forwarded)
+    if err != nil {
+        fmt.Printf("Failed to forward webrtc-p2p signal: %v\n", err)
+        return
+    }
+
+    fmt.Printf("Forwarded webrtc-p2p signal from %s -> %s\n", currentUserID, recipient.UserID)
 }
 
 func handleSignaling(writer http.ResponseWriter, request *http.Request) {
@@ -366,6 +425,8 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 				})
 			case int(OpSelectProtocol):
 				handleSelectProtocol(msg.D, c, currentUserID)
+			case int(OpSignal):
+				handleSignal(msg.D, currentUserID)
 		}
 	}
 }

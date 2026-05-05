@@ -13,6 +13,7 @@ const (
 	OpFiller1 // 5
 	OpHeartbeatAck // 6
 	OpHello = 8
+	OpSignal = 10 // webrtc-p2p
 	OpDisconnect = 13
 )
 
@@ -44,6 +45,12 @@ type SelectProtocol struct {
 	Data json.RawMessage `json:"data"`
 	SDP string `json:"sdp,omitempty"`
 	Codecs []Codec `json:"codecs"`
+}
+
+type Signal struct {
+    UserID     string       `json:"user_id"`
+    Description json.RawMessage `json:"description,omitempty"`
+    Candidate   json.RawMessage `json:"candidate"`
 }
 
 type UDPData struct {
