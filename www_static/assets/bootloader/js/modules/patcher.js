@@ -40,10 +40,18 @@ const patcher = {
     // Fix client misidentification
     script = script.replace('__[STANDALONE]__', '');
 
-    script = script.replace(`c["default"].createSessionDescription(e,this.payloadType,this.remoteSDP,t,n,this.bitrate)`, `new RTCSessionDescription({type:e,sdp:this.remoteSDP})`); //fix 2016 sdp handling - theres no munging, no plan-b, so simple in 2015-2016, its beautiful
+    script = script.replace(/[A-Za-z_$][\w$]*\[(["'])default\1\]\.createSessionDescription\(e,this\.payloadType,this\.remoteSDP,t,n(?:,this\.bitrate)?\)/g, `new RTCSessionDescription({type:e,sdp:this.remoteSDP})`);
+
+    //script = script.replace(`E["default"].createSessionDescription(e,this.payloadType,this.remoteSDP,t,n)`, `new RTCSessionDescription({type:e,sdp:this.remoteSDP})`); //fix for dec 2015
+    //script = script.replace(`c["default"].createSessionDescription(e,this.payloadType,this.remoteSDP,t,n,this.bitrate)`, `new RTCSessionDescription({type:e,sdp:this.remoteSDP})`); //fix 2016 sdp handling - theres no munging, no plan-b, so simple in 2015-2016, its beautiful
     script = script.replace(`.src=URL.createObjectURL`, `.srcObject=`) //fix webrtc audio playback deprecation on 2015-2016
     script = script.replace(`d(e,t,n,o,r)`, `n`) //fix sdp munging on 2015, other than that the existing code is unified-plan compliant. its beautiful. why the fuck did you mess up 2017 :sob:
 
+    //jan 23 2017 needs these deprecation fixes for webrtc:
+    //WebRTC: RTCIceServer.url is deprecated! Use urls instead. b8031ac2-091b-4669-9ff5-182d545ab162:65
+    //WebRTC: onaddstream is deprecated! Use peerConnection.ontrack instead.
+
+    //E["default"].createSessionDescription(e,this.payloadType,this.remoteSDP,t,n)
     // Recaptcha support
     if (config.captcha_options.enabled)
       script = script.replaceAll(

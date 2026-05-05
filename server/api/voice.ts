@@ -146,10 +146,23 @@ router.get('/ice', (_req: Request, res: Response) => {
   });
 });
 
-router.post("/process-offer", (req, res) => {
+router.post("/process-offer", (req: Request, res: Response) => {
     try {
         const { sdpFragment, codecs } = req.body;
-        const finalOffer = handleOffer(sdpFragment, codecs);
+        const finalOffer = handleOffer(sdpFragment, codecs ?? [
+            {
+                name: "opus",
+                type: "audio",
+                priority: 1000,
+                payload_type: sdpFragment.includes("rtpmap:109") ? 109 : 111
+            }, {
+                name: "VP8",
+                type: "video",
+                priority: 1000,
+                payload_type: sdpFragment.includes("rtpmap:120") ? 120 : 100,
+                rtx_payload_type: 124 //??
+            }
+        ]);
 
         return res.status(200).send(finalOffer);
     } catch (err: any) {
@@ -158,7 +171,7 @@ router.post("/process-offer", (req, res) => {
     }
 });
 
-router.post("/process-answer", (req, res) => {
+router.post("/process-answer", (req: Request, res: Response) => {
     try {
         const { pionSdp, publicIp, publicPort, fingerprint } = req.body;
         const answerSdp = SDPInfo.parse(pionSdp);
