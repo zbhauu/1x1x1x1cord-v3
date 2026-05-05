@@ -264,7 +264,7 @@ func GetWebRTCP2PPeers(exclusionId string) []string {
 	outPeers := make([]string, 0)
 
 	for _, client := range clients {
-		if client.UserID != exclusionId {
+		if client.UserID != exclusionId && client.Protocol == "webrtc-p2p" {
 			outPeers = append(outPeers, client.UserID)
 		}
 	}
@@ -279,6 +279,8 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 		fmt.Println("SelectProtocol Unmarshal error:", err)
 		return
 	}
+
+	clients[currentUserID].Protocol = payload.Protocol
 
 	switch(payload.Protocol) {
 		case "udp":
@@ -343,7 +345,7 @@ func handleSignal(msgD json.RawMessage, currentUserID string) {
 	defer clientsMu.RUnlock()
 	recipient := clients[payload.UserID]
 
-    if recipient == nil {
+    if recipient == nil || recipient.Protocol != "webrtc-p2p" {
         fmt.Printf("Couldn't forward webrtc-p2p signal to %s\n", payload.UserID)
         return
     }

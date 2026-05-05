@@ -25,6 +25,7 @@ type RTCClient struct {
 	UserID                 string
 	SessionID              string
 	Token                  string
+	Protocol 			   string
 	SSRC                   uint32
 	Video                  bool
 	SelfMute               bool
@@ -60,6 +61,7 @@ func NewRTCClient(userID string, serverID string, sessionId string, token string
 		Video:     video,
 		Socket:    socket,
 		SSRC:      ssrc,
+		Protocol: "Unchosen",
 	}
 }
 
