@@ -47,7 +47,7 @@ var (
 	UDPPort int
 	RestPort int
 	webrtcAPI *webrtc.API
-	
+	PublicIP bool
 )
 
 func VerifyConnection(serverId string, userId string, sessionId string, token string) (SyncData, bool) {
@@ -65,20 +65,19 @@ func VerifyConnection(serverId string, userId string, sessionId string, token st
 
 func AddClient(client *RTCClient) {
     clientsMu.Lock()
-    defer clientsMu.Unlock()
     clients[client.UserID] = client
+	clientsMu.Unlock()
 }
 
 func RemoveClient(userID string) {
     clientsMu.Lock()
-    defer clientsMu.Unlock()
     delete(clients, userID)
+	clientsMu.Unlock()
 }
 
 func FindClientBySSRC(ssrc uint32) *RTCClient {
-	clientsMu.Lock()
-	defer clientsMu.Unlock()
-	
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
 	for _, v := range clients {
 		if v.SSRC == ssrc {
 			return v
@@ -89,16 +88,13 @@ func FindClientBySSRC(ssrc uint32) *RTCClient {
 }
 
 func TryBroadcastUDP(p *rtp.Packet, channelId string, senderID string, senderSSRC uint32) {
-	clientsMu.RLock()
-	defer clientsMu.RUnlock()
-
 	now := time.Now().UnixMilli()
 
 	var shouldSendSpeaking bool
 
 	speakingStateMu.Lock()
-
 	state, exists := speakingState[senderSSRC]
+	speakingStateMu.Unlock()
 
 	if !exists {
 		state = &SpeakingState{}
@@ -109,9 +105,8 @@ func TryBroadcastUDP(p *rtp.Packet, channelId string, senderID string, senderSSR
 		shouldSendSpeaking = true
 		state.lastSent = now
 	}
-
-	speakingStateMu.Unlock()
-
+	
+	clientsMu.RLock()
 	for _, client := range clients {
 		if client.ChannelID != channelId || client.SSRC == senderSSRC {
 			continue
@@ -129,6 +124,7 @@ func TryBroadcastUDP(p *rtp.Packet, channelId string, senderID string, senderSSR
 			client.SendSpeakingEvent(senderID, senderSSRC)
 		}
 	}
+	clientsMu.RUnlock()
 }
 
 //So voice (2015* - 2018) works like this * - Depends as webrtc-p2p was only added in Jan 31 2017 and removed sometime in 2019 or so.
@@ -160,7 +156,7 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 
 	sessionData, ok := VerifySession(d.Token)
 
-	if sessionData.ServerID != d.ServerID && sessionData.UserID != d.UserID && sessionData.SessionID != d.SessionID && !TestMode {
+	if (sessionData.ServerID != d.ServerID || sessionData.UserID != d.UserID || sessionData.SessionID != d.SessionID) && !TestMode{
 		fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
 		c.Close(4004, "Authentication failed")
 		return
@@ -187,7 +183,7 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 
 	fmt.Printf("User %s added to active clients.\n", client.UserID)
 
-	wsjson.Write(ctx, c, map[string]interface{}{
+	client.SafeWrite(map[string]interface{}{
 		"op": OpReady,
 		"d": map[string]interface{}{
 			"ssrc":         ssrc,
@@ -322,14 +318,18 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 		return
 	}
 
-	if clients[currentUserID].Protocol != "Unchosen" {
+	clientsMu.RLock()
+	client := clients[currentUserID]
+	clientsMu.RUnlock()
+
+	if client.Protocol != "Unchosen" {
 		c.Close(4005, "Already authenticated")
-		clients[currentUserID].Close()
+		client.Close()
 		return
 	}
 
 	if payload.Protocol == "udp" || payload.Protocol == "webrtc" || payload.Protocol == "webrtc-p2p" {
-		clients[currentUserID].Protocol = payload.Protocol
+		client.Protocol = payload.Protocol
 	}
 
 	switch(payload.Protocol) {
@@ -346,7 +346,7 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 				return
 			}
 
-			wsjson.Write(context.Background(), c, map[string]interface{}{
+			client.SafeWrite(map[string]interface{}{
 				"op": OpAnswer,
 				"d": map[string]interface{}{
 					"mode": "plain",
@@ -367,11 +367,11 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 				sdpFragment = sdp
 			}
 
-			clients[currentUserID].SetupPC(sdpFragment, payload.Codecs)
+			go client.SetupPC(sdpFragment, payload.Codecs)
 		case "webrtc-p2p":
 			peers := GetWebRTCP2PPeers(currentUserID)
 
-			wsjson.Write(context.Background(), c, map[string]interface{}{
+			client.SafeWrite(map[string]interface{}{
 				"op": OpAnswer,
 				"d": map[string]interface{}{
 					"peers": peers,
@@ -379,7 +379,7 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 			})
 		default:
 			c.Close(4012, "Unknown protocol")
-			clients[currentUserID].Close()
+			client.Close()
 			return
 	}
 }
@@ -408,7 +408,7 @@ func handleSignal(msgD json.RawMessage, currentUserID string) {
         "d":  payload,
     }
 
-	err := wsjson.Write(context.Background(), recipient.Socket, forwarded)
+	err := recipient.SafeWrite(forwarded)
     if err != nil {
         fmt.Printf("Failed to forward webrtc-p2p signal: %v\n", err)
         return
@@ -426,9 +426,8 @@ func handleSpeaking(msgD json.RawMessage, c *websocket.Conn, currentUserID strin
 	}
 
 	clientsMu.RLock()
-	defer clientsMu.RUnlock()
-
 	client := clients[currentUserID]
+	clientsMu.RUnlock()
 
 	if client == nil || client.Protocol == "Unchosen" {
 		//how?
@@ -441,33 +440,13 @@ func handleSpeaking(msgD json.RawMessage, c *websocket.Conn, currentUserID strin
 		return //dont dispatch speaking packets from those who describe themselves as "muted"
 	}
 	
-	rateLimitsMu.Lock()
-
-	last, exists := rateLimits[currentUserID]
-
 	now := time.Now().UnixMilli()
-
-	if exists && now - last < 1500 {
-		c.Close(4021, "Rate limited")
-		client.Close()
-		delete(rateLimits, currentUserID)
-		return
-	}
-
+	rateLimitsMu.Lock()
 	rateLimits[currentUserID] = now
 	rateLimitsMu.Unlock()
 
 	lastRTPMu.Lock()
-
-	lastRTPWhen := lastRTP[payload.SSRC]
-
-	if now - lastRTPWhen > 3000 {
-		//havent spoken in 3 seconds, ignore dispatching speaking packet
-		return
-	}
-
 	lastRTP[payload.SSRC] = time.Now().UnixMilli()
-	
 	lastRTPMu.Unlock()
 
 	for _, other := range clients {
@@ -545,15 +524,14 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 
 func AddSession(data SyncData) {
     sessionMu.Lock()
-    defer sessionMu.Unlock()
     pendingSessions[data.Token] = data
+	sessionMu.Unlock()
 }
 
 func VerifySession(token string) (SyncData, bool) {
-    sessionMu.Lock()
-    defer sessionMu.Unlock()
-    
+    sessionMu.RLock()
     data, exists := pendingSessions[token]
+	sessionMu.RUnlock()
 
     return data, exists
 }
@@ -691,7 +669,7 @@ func main() {
 	}
 
 	if len(os.Args) < 4 {
-		fmt.Println("Rtc-server must be run with a RTC server port, UDP port, and rest port.\nExample: go run . 3240 4240 1337")
+		fmt.Println("Rtc-server must be run with a RTC server port, UDP port, rest port, public ip (if wanted).\nExample: go run . 3240 4240 1337 110.48.28.211 <- this ones optional")
 		return
 	}
 
@@ -710,11 +688,27 @@ func main() {
 		log.Fatal("Invalid REST port")
 	}
 
+	if len(os.Args) > 5 {
+		IP = string(os.Args[4])
+	}
+
 	RestPort = RestPortTemp //SHUT UP GOLANG IVE USED THIS PORT IN RTCCLIENT. YES I HAVE.
-	
+	PublicIP = false
+
 	RTC_SECRET_KEY = os.Getenv("RTC_SECRET_KEY");
 	IP = GetOutboundIP().String()
-	TestMode = true
+	TestMode = true //Remove this when done testing as below takes it in
+
+	if len(os.Args) > 6 {
+		TestModeTemp, err := strconv.ParseBool(os.Args[4])
+
+		if err != nil {
+			log.Fatal("Invalid TestMode toggle")
+		}
+
+		TestMode = TestModeTemp
+	}
+
 	mediaEngine, err := createMediaEngine()
 
 	settingEngine := webrtc.SettingEngine{}
@@ -723,13 +717,15 @@ func main() {
 	// restrict to UDP4 to improve compatibility with Firefox's strict ICE parser
 	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
 
+	if PublicIP {
+		settingEngine.SetICEAddressRewriteRules(webrtc.ICEAddressRewriteRule{
+			External:      []string{IP},
+			AsCandidateType: webrtc.ICECandidateTypeHost,
+			Mode:          webrtc.ICEAddressRewriteReplace,
+		})
+	}
 	// this is so that the sdp offer always sends our public IP
 	// in case our SFU server is behind NAT
-	settingEngine.SetICEAddressRewriteRules(webrtc.ICEAddressRewriteRule{
-		External:      []string{IP},
-		AsCandidateType: webrtc.ICECandidateTypeHost,
-		Mode:          webrtc.ICEAddressRewriteReplace,
-	})
 
 	// debug logging, remove when done
 	logFactory := logging.NewDefaultLoggerFactory()

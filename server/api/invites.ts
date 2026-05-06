@@ -126,7 +126,14 @@ router.post(
         });
       }
 
-      await InviteService.useInvite(invite.code, sender.id);
+      let result = await InviteService.useInvite(invite.code, sender.id);
+
+      if ('status' in result) {
+         return res.status(result.status).json({
+          code: result.status,
+          message: result.error
+         });
+      }
 
       delete invite.uses;
 

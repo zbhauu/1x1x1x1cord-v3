@@ -46,6 +46,7 @@ type RTCClient struct {
 	subscriptions          map[string]bool
 	recorder               *oggwriter.OggWriter // Keep the writer alive here
 	recorderMutex          sync.Mutex
+	writeMu sync.Mutex
 }
 
 type PublishedWebRTCTrack struct {
@@ -75,6 +76,12 @@ func (p *RTCClient) getPublishedWebRTCTrack(trackType string) *PublishedWebRTCTr
 	return p.videoWebRTCPublished
 }
 
+func (c *RTCClient) SafeWrite(v interface{}) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return wsjson.Write(context.Background(), c.Socket, v)
+}
+
 func (p *RTCClient) setPublishedWebRTCTrack(trackType string, pt *PublishedWebRTCTrack) {
 	if trackType == "audio" {
 		p.audioWebRTCPublished = pt
@@ -100,6 +107,13 @@ func (c *RTCClient) Close() {
 	if c.pc != nil {
 		c.pc.Close()
 	}
+
+	if c.audioWebRTCPublished != nil {
+        close(c.audioWebRTCPublished.stop)
+    }
+    if c.videoWebRTCPublished != nil {
+        close(c.videoWebRTCPublished.stop)
+    }
 }
 
 func callNode(endpoint string, body interface{}) (string, error) {
@@ -151,7 +165,7 @@ func (c *RTCClient) HandleUDP(payload []byte) {
 }
 
 func (c *RTCClient) SendSpeakingEvent(UserID string, SSRC uint32) {
-	err := wsjson.Write(context.Background(), c.Socket, map[string]interface{}{
+	err := c.SafeWrite(map[string]interface{}{
 		"op": 5,
 		"d": map[string]interface{}{
 			"user_id": UserID,
@@ -187,6 +201,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	if c.pc != nil {
 		return
 	}
+
+	log.Println("NEW PEER CONNECTION")
 
 	pc, err := webrtcAPI.NewPeerConnection(webrtc.Configuration{})
 
@@ -302,7 +318,7 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		fmt.Println("Handling legacy (2015-Jan 23 2017) answer...")
 	}
 
-	wsjson.Write(context.Background(), c.Socket, map[string]interface{}{
+	c.SafeWrite(map[string]interface{}{
 		"op": OpAnswer,
 		"d": map[string]interface{}{
 			"sdp":         sdpAnswer,

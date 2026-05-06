@@ -53,8 +53,12 @@ router.post('/authorize', async (req: Request, res: Response) => {
     const targetGuildId = bot_guild_id || guild_id;
     const account = req.account;
 
-    await OAuthService.authorizeBotToGuild(client_id as string, targetGuildId, account.id);
+    let result = await OAuthService.authorizeBotToGuild(client_id as string, targetGuildId, account.id);
 
+    if (result.status !== 200) {
+      return res.status(result.status).json(result);
+    }
+    
     return res.json({ 
       location: `${req.protocol}://${req.get('host')}/oauth2/authorized` 
     });

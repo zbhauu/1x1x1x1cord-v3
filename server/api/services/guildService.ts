@@ -130,8 +130,8 @@ export const GuildService = {
             this.isBanned(userId, guildId)
         ]);
 
-        if (isMember) return { canJoin: false, reason: 'ALREADY_MEMBER' };
-        if (isBanned) return { canJoin: false, reason: 'BANNED' };
+        if (isMember) return { canJoin: false, reason: "You're already a member of this guild." }; //?? find error
+        if (isBanned) return { canJoin: false, reason: errors.response_403.USER_BANNED_FROM_GUILD.message };
 
         return { canJoin: true };
     },
@@ -169,7 +169,13 @@ export const GuildService = {
             return false;
         }
     },
-    async addMember(user_id: string, guild_id: string) {
+    async addMember(user_id: string, guild_id: string): Promise<{
+      status: number,
+      error: {
+        code: number,
+        message: string
+      } | null
+    }> {
         const guild = await prisma.guild.findUnique({
             where: { id: guild_id },
             select: {
@@ -182,7 +188,7 @@ export const GuildService = {
         });
 
         if (!guild) {
-            throw { status: 404, error: errors.response_404.UNKNOWN_GUILD };
+            return { status: 404, error: errors.response_404.UNKNOWN_GUILD };
         }
 
         const basicUser = await prisma.user.findUnique({
@@ -191,10 +197,6 @@ export const GuildService = {
             },
             select: PUBLIC_USER_SELECT
         });
-    
-        const check = await this.canJoin(user_id, guild_id);
-
-        if (!check.canJoin) throw { status: 404, error: errors.response_404.UNKNOWN_GUILD };
 
         const joinedAt = new Date().toISOString();
         await prisma.member.create({
@@ -246,6 +248,11 @@ export const GuildService = {
                     );
                 },
             );
+        }
+
+        return {
+            status: 200,
+            error: null
         }
     },
     async exists(guildId: string): Promise<boolean> {

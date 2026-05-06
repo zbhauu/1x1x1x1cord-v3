@@ -134,14 +134,20 @@ export const OAuthService = {
         };
     },
 
-    async authorizeBotToGuild(clientId: string, guildId: string, userId: string) {
+    async authorizeBotToGuild(clientId: string, guildId: string, userId: string): Promise<{
+        status: number,
+        error: {
+            code: number,
+            message: string
+        } | null
+    }> {
         const application = await prisma.application.findUnique({
             where: { id: clientId },
             include: { bot: true }
         });
 
         if (!application || !application.bot) {
-            throw {
+            return {
                 status: 404,
                 error: errors.response_404.UNKNOWN_APPLICATION
             };
@@ -150,7 +156,7 @@ export const OAuthService = {
         const canJoinGuild = await GuildService.canJoin(application.bot.id, guildId);
 
         if (!canJoinGuild.canJoin) {
-            throw { status: 404, error: errors.response_404.UNKNOWN_GUILD };
+            return { status: 404, error: errors.response_404.UNKNOWN_GUILD };
         }
 
         const guild = await prisma.guild.findUnique({
@@ -162,23 +168,30 @@ export const OAuthService = {
         });
 
         if (!guild) {
-            throw { status: 404, error: errors.response_404.UNKNOWN_GUILD };
+            return { status: 404, error: errors.response_404.UNKNOWN_GUILD };
         }
 
         const authorizingUser = guild.members.find(m => m.user_id === userId);
         const botAlreadyThere = guild.members.find(m => m.user_id === application.bot!.id);
 
         if (!authorizingUser || botAlreadyThere || guild.bans.length > 0) {
-            throw { status: 403, error: errors.response_403.MISSING_PERMISSIONS };
+            return { status: 403, error: errors.response_403.MISSING_PERMISSIONS };
         }
 
         const hasPermission = guild.owner_id === userId || permissions.hasGuildPermissionTo(guildId, userId, 'MANAGE_GUILD', null);
 
         if (!hasPermission) {
-            throw { status: 403, error: errors.response_403.MISSING_PERMISSIONS };
+            return { status: 403, error: errors.response_403.MISSING_PERMISSIONS };
         } //redundant checks but remove later
 
-        await GuildService.addMember(application.bot.id, guild.id);
+        let result = await GuildService.addMember(application.bot.id, guild.id);
+
+        if (result.status !== 200) {
+            return {
+                status: result.status,
+                error: result.error
+            }
+        }
 
         await AuditLogService.insertEntry(
             guildId,
@@ -190,7 +203,7 @@ export const OAuthService = {
             {}
         );
 
-        return { success: true };
+        return { status: 200, error: null };
     },
 
     async getApplicationById(applicationId: string) {

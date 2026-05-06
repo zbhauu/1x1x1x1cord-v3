@@ -176,7 +176,7 @@ router.post("/process-answer", (req: Request, res: Response) => {
         const { pionSdp, publicIp, publicPort, fingerprint } = req.body;
         const answerSdp = SDPInfo.parse(pionSdp);
         const candidate = answerSdp.candidates[0];
-        const answer =
+        let answer =
             `m=audio ${publicPort} ICE/SDP\n` +
             `a=fingerprint:${fingerprint}\n` +
             `c=IN IP4 ${publicIp}\n` +
@@ -186,6 +186,7 @@ router.post("/process-answer", (req: Request, res: Response) => {
             //`a=fingerprint:${fingerprint}\n` +
             `a=candidate:1 1 ${candidate.getTransport()} ${candidate.getFoundation()} ${candidate.getAddress()} ${candidate.getPort()} typ host\n`;
 
+            answer = answer.replace(`m=audio 0`, `m=audio 3240`)
         return res.status(200).send(answer);
     } catch (err: any) {
         logText(err, 'error');

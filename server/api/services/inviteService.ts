@@ -56,21 +56,24 @@ export const InviteService = {
 
         return this._formatInviteResponse(invite);
     },
-    async useInvite(code: string, user_id: string): Promise<Guild> {
+    async useInvite(code: string, user_id: string): Promise<Guild | {
+        status: number,
+        error: string | null
+    }> {
         const invite = await this.getInviteByCode(code);
 
         if (!invite) {
-            throw { status: 404, error: 'UNKNOWN_GUILD' };
+            return { status: 404, error: 'UNKNOWN_GUILD' };
         }
 
         const canJoin = await GuildService.canJoin(user_id, invite.guild.id);
 
         if (!canJoin.canJoin) {
-            throw { status: 403, error: canJoin.reason };
+            return { status: 403, error: canJoin.reason as string };
         }
 
         if (invite.max_uses > 0 && invite.uses && invite.uses >= invite.max_uses) {
-            throw { status: 403, error: 'INVITE_MAX_USES_REACHED' };
+            return { status: 403, error: 'INVITE_MAX_USES_REACHED' };
         }
 
         await prisma.invite.update({
@@ -80,7 +83,14 @@ export const InviteService = {
             }
         });
 
-        await GuildService.addMember(user_id, invite.guild.id);
+        let result = await GuildService.addMember(user_id, invite.guild.id);
+
+        if (result.status !== 200) {
+            return {
+                status: result.status,
+                error: result.error?.message ?? null
+            }
+        }
 
         return GuildService._formatResponse(invite.guild);
     },
