@@ -45,7 +45,6 @@ var (
 	TestMode bool
 	Port int
 	UDPPort int
-	RestPort int
 	webrtcAPI *webrtc.API
 	PublicIP bool
 )
@@ -669,7 +668,7 @@ func main() {
 	}
 
 	if len(os.Args) < 4 {
-		fmt.Println("Rtc-server must be run with a RTC server port, UDP port, rest port, public ip (if wanted).\nExample: go run . 3240 4240 1337 110.48.28.211 <- this ones optional")
+		fmt.Println("Rtc-server must be run with a RTC server port, UDP port and public ip (if wanted).\nExample: go run . 3240 4240 110.48.28.211 <- this ones optional")
 		return
 	}
 
@@ -683,26 +682,18 @@ func main() {
 		log.Fatal("Invalid UDP port")
 	}
 
-	RestPortTemp, err := strconv.Atoi(os.Args[3])
-	if err != nil {
-		log.Fatal("Invalid REST port")
-	}
-
 	PublicIP = false
 	
-	if len(os.Args) > 5 {
-		IP = string(os.Args[4])
+	if len(os.Args) > 4 {
+		IP = string(os.Args[3])
 		PublicIP = true
 	}
-
-	RestPort = RestPortTemp //SHUT UP GOLANG IVE USED THIS PORT IN RTCCLIENT. YES I HAVE.
-	
 
 	RTC_SECRET_KEY = os.Getenv("RTC_SECRET_KEY");
 	IP = GetOutboundIP().String()
 	TestMode = true //Remove this when done testing as below takes it in
 
-	if len(os.Args) > 6 {
+	if len(os.Args) > 5 {
 		TestModeTemp, err := strconv.ParseBool(os.Args[4])
 
 		if err != nil {

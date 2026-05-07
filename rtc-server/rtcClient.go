@@ -1,16 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -116,19 +110,6 @@ func (c *RTCClient) Close() {
     }
 }
 
-func callNode(endpoint string, body interface{}) (string, error) {
-	jsonBody, _ := json.Marshal(body)
-	resp, err := http.Post(fmt.Sprintf("http://localhost:%s/api/voice/process-%s", strconv.Itoa(RestPort), endpoint), "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return "", err
-	}
-
-	defer resp.Body.Close()
-
-	b, _ := io.ReadAll(resp.Body)
-	return string(b), nil
-}
-
 func (c *RTCClient) HandleUDP(payload []byte) {
 	packet := &rtp.Packet{}
 
@@ -212,8 +193,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	}
 
 	// create the single downstream tracks for Audio and Video multiplexing
-	masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", "multiplex")
-	masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", "multiplex")
+	masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", "audio")
+	//masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", "video")
 
 	// add them to the peer connection immediately so they are included in the initial Offer/Answer
 	if _, err := pc.AddTrack(masterAudio); err != nil {
@@ -221,13 +202,13 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		return
 	}
 
-	if _, err := pc.AddTrack(masterVideo); err != nil {
-		fmt.Printf("AddTrack video: %v\n", err)
-		return
-	}
+	//if _, err := pc.AddTrack(masterVideo); err != nil {
+		//fmt.Printf("AddTrack video: %v\n", err)
+		//return
+	//}
 
 	c.masterWebRTCAudio = masterAudio
-	c.masterWebRTCVideo = masterVideo
+	//c.masterWebRTCVideo = masterVideo
 	c.subscriptions = make(map[string]bool)
 	c.pc = pc
 
@@ -247,27 +228,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	log.Printf("Client %s joined", c.ServerID)
 
 	fullOffer := sdpFragment
-	legacyOffer := true
-
-	if !strings.Contains(sdpFragment, "v=0") {
-		fullOfferTemp, err := callNode("offer", map[string]interface{}{
-			"sdpFragment": sdpFragment,
-			"codecs":      codecs,
-		})
-		if err != nil {
-			fmt.Printf("Failed to process offer. Are you sure the Oldcord REST API is up?: %v\n", err)
-			return
-		}
-
-		fullOffer = fullOfferTemp
-		legacyOffer = false
-	}
 
 	fmt.Printf("%s\n", fullOffer)
-
-	if legacyOffer {
-		fmt.Println("Handling legacy (2015-Jan 23 2017) offer...")
-	}
 
 	offer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -294,34 +256,10 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 
 	pionSDP := c.pc.LocalDescription().SDP
 
-	sdpAnswer := pionSDP
-
-	if !legacyOffer {
-		sctp := c.pc.SCTP().Transport()
-		dtlsParams, _ := sctp.GetLocalParameters()
-		fp := dtlsParams.Fingerprints[0]
-		actualFP := fp.Algorithm + " " + strings.ToUpper(fp.Value)
-
-		sdpAnswerTemp, err := callNode("answer", map[string]interface{}{
-			"pionSdp":     pionSDP,
-			"publicIp":    IP,
-			"publicPort":  Port,
-			"fingerprint": actualFP,
-		})
-		if err != nil {
-			fmt.Printf("Failed to make answer. Are you sure the Oldcord REST API is up?: %v\n", err)
-			return
-		}
-
-		sdpAnswer = sdpAnswerTemp
-	} else {
-		fmt.Println("Handling legacy (2015-Jan 23 2017) answer...")
-	}
-
 	c.SafeWrite(map[string]interface{}{
 		"op": OpAnswer,
 		"d": map[string]interface{}{
-			"sdp":         sdpAnswer,
+			"sdp":         pionSDP,
 			"audio_codec": "opus",
 			"video_codec": "VP8",
 		},

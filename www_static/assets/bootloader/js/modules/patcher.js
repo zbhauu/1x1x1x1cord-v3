@@ -640,6 +640,13 @@ const patcher = {
 
     // Just for visual verification that it is ptached by Oldcord LMAO
 
+    //script = script.replace(`(0,a.truncateSDP)(t)`, `{sdp:t,codecs:m(t).codecs}`);
+
+    script = script.replace(`sdp:(`, `sdp:e,legacy_sdp:(`)
+    //script = script.replace(`return this.emit(e, u)`, `return this.emit(e, u)`)
+    // This captures the 'type' variable name using $1 and replaces the sdp variable with 't'
+    script = script.replace(/return\s+new\s+RTCSessionDescription\(\{\s*type\s*:\s*(\w+)\s*,\s*sdp\s*:\s*\w+\s*\}\)/g, 'return new RTCSessionDescription({type:$1,sdp:t})');
+    //script = script.replace(`var g=[];`, `var g=[];return new RTCSessionDescription({type: e, sdp: t})`)
     script = script.replace("returnt", "return t") //bug with voice because of patcher on 2015-2016
     script += '\n// Oldcord Patched';
 
