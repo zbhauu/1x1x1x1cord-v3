@@ -17,29 +17,32 @@ import (
 )
 
 type RTCClient struct {
-	ServerID               string
-	ChannelID 			   string
-	UserID                 string
-	SessionID              string
-	Token                  string
-	Protocol 			   string
-	SSRC                   uint32
-	Video                  bool
-	SelfMute               bool
-	SelfDeaf               bool
-	masterWebRTCAudio      *MultiplexTrack
-	masterWebRTCVideo      *MultiplexTrack
-	Socket                 *websocket.Conn
-	udpSocket              *net.UDPConn
-	mu                     sync.Mutex
-	pc                     *webrtc.PeerConnection
-	udpAddr                *net.UDPAddr
-	audioWebRTCPublished   *PublishedWebRTCTrack
-	videoWebRTCPublished   *PublishedWebRTCTrack
-	subscriptions          map[string]bool
-	recorder               *oggwriter.OggWriter // Keep the writer alive here
-	recorderMutex          sync.Mutex
-	writeMu sync.Mutex
+	ServerID             string
+	ChannelID            string
+	UserID               string
+	SessionID            string
+	Token                string
+	Protocol             string
+	AudioSSRC            uint32
+	VideoSSRC            uint32
+	RtxAudioSSRC         uint32 //when the SFU detects a sequence number jump, assign this to the last ssrc
+	RtxVideoSSRC         uint32
+	Video                bool
+	SelfMute             bool
+	SelfDeaf             bool
+	masterWebRTCAudio    *MultiplexTrack
+	masterWebRTCVideo    *MultiplexTrack
+	Socket               *websocket.Conn
+	udpSocket            *net.UDPConn
+	mu                   sync.Mutex
+	pc                   *webrtc.PeerConnection
+	udpAddr              *net.UDPAddr
+	audioWebRTCPublished *PublishedWebRTCTrack
+	videoWebRTCPublished *PublishedWebRTCTrack
+	subscriptions        map[string]bool
+	recorder             *oggwriter.OggWriter // Keep the writer alive here
+	recorderMutex        sync.Mutex
+	writeMu              sync.Mutex
 }
 
 type PublishedWebRTCTrack struct {
@@ -48,17 +51,20 @@ type PublishedWebRTCTrack struct {
 	stop  chan struct{}
 }
 
-func NewRTCClient(userID string, serverID string, channelID string, sessionId string, token string, ssrc uint32, video bool, socket *websocket.Conn) *RTCClient {
+func NewRTCClient(userID string, serverID string, channelID string, sessionId string, token string, audio_ssrc uint32, video_ssrc uint32, video bool, socket *websocket.Conn) *RTCClient {
 	return &RTCClient{
-		ServerID:  serverID,
-		UserID:    userID,
-		SessionID: sessionId,
-		ChannelID: channelID,
-		Token:     token,
-		Video:     video,
-		Socket:    socket,
-		SSRC:      ssrc,
-		Protocol: "Unchosen",
+		ServerID:     serverID,
+		UserID:       userID,
+		SessionID:    sessionId,
+		ChannelID:    channelID,
+		Token:        token,
+		Video:        video,
+		Socket:       socket,
+		AudioSSRC:    audio_ssrc,
+		RtxAudioSSRC: audio_ssrc,
+		VideoSSRC:    video_ssrc,
+		RtxVideoSSRC: video_ssrc,
+		Protocol:     "Unchosen",
 	}
 }
 
@@ -102,14 +108,14 @@ func (c *RTCClient) Close() {
 	}
 
 	if c.audioWebRTCPublished != nil {
-        close(c.audioWebRTCPublished.stop)
-    }
-    if c.videoWebRTCPublished != nil {
-        close(c.videoWebRTCPublished.stop)
-    }
+		close(c.audioWebRTCPublished.stop)
+	}
+	if c.videoWebRTCPublished != nil {
+		close(c.videoWebRTCPublished.stop)
+	}
 }
 
-func (c *RTCClient) HandleUDP(payload []byte) {
+func (c *RTCClient) HandleUDP(payload []byte, packetType string) {
 	packet := &rtp.Packet{}
 
 	if err := packet.Unmarshal(payload); err != nil {
@@ -137,19 +143,28 @@ func (c *RTCClient) HandleUDP(payload []byte) {
 		c.recorderMutex.Unlock()
 	}
 
+	ssrc := 0
 	lastRTPMu.Lock()
-	lastRTP[c.SSRC] = time.Now().UnixMilli()
+
+	if packetType == "audio" {
+		lastRTP[c.AudioSSRC] = time.Now().UnixMilli()
+		ssrc = int(c.AudioSSRC)
+	} else {
+		lastRTP[c.VideoSSRC] = time.Now().UnixMilli()
+		ssrc = int(c.VideoSSRC)
+	}
+
 	lastRTPMu.Unlock()
 
-	TryBroadcastUDP(packet, c.ChannelID, c.UserID, c.SSRC)
+	TryBroadcastUDP(packet, c.ChannelID, c.UserID, uint32(ssrc), packetType)
 }
 
 func (c *RTCClient) SendSpeakingEvent(UserID string, SSRC uint32) {
 	err := c.SafeWrite(map[string]interface{}{
 		"op": OpSpeaking,
 		"d": map[string]interface{}{
-			"user_id": UserID,
-			"ssrc":    SSRC,
+			"user_id":  UserID,
+			"ssrc":     SSRC,
 			"speaking": true,
 		},
 	})
@@ -176,31 +191,31 @@ func (c *RTCClient) SendUDP(p *rtp.Packet, SSRC uint32) {
 }
 
 func (c *RTCClient) SubscribeToExistingTracks() {
-    clientsMu.RLock()
+	clientsMu.RLock()
 
-    defer clientsMu.RUnlock()
+	defer clientsMu.RUnlock()
 
-    for _, other := range clients {
-        if other.UserID == c.UserID {
-            continue
-        }
+	for _, other := range clients {
+		if other.UserID == c.UserID {
+			continue
+		}
 
-        if other.ChannelID != c.ChannelID {
-            continue
-        }
+		if other.ChannelID != c.ChannelID {
+			continue
+		}
 
 		var videoSSRC uint32 = 0
 		var audioSSRC uint32 = 0
 
-        other.mu.Lock()
+		other.mu.Lock()
 
 		if other.masterWebRTCAudio != nil {
 			subKeyAudio := other.UserID + "_audio"
 
 			audioSSRC = uint32(other.masterWebRTCAudio.ssrc)
 			c.mu.Lock()
-            c.subscriptions[subKeyAudio] = true
-            c.mu.Unlock()
+			c.subscriptions[subKeyAudio] = true
+			c.mu.Unlock()
 		}
 
 		if other.masterWebRTCVideo != nil {
@@ -208,23 +223,23 @@ func (c *RTCClient) SubscribeToExistingTracks() {
 
 			videoSSRC = uint32(other.masterWebRTCAudio.ssrc)
 			c.mu.Lock()
-            c.subscriptions[subKeyVideo] = true
-            c.mu.Unlock()
+			c.subscriptions[subKeyVideo] = true
+			c.mu.Unlock()
 
 			log.Printf("Subscribed New Client %s to existing %s track from %s", c.UserID, "video", other.UserID)
 		}
 
-        c.SafeWrite(map[string]interface{}{
-            "op": OpSSRCUpdate,
-            "d": map[string]interface{}{
-                "user_id":    other.UserID,
-                "audio_ssrc": audioSSRC, 
+		c.SafeWrite(map[string]interface{}{
+			"op": OpSSRCUpdate,
+			"d": map[string]interface{}{
+				"user_id":    other.UserID,
+				"audio_ssrc": audioSSRC,
 				"video_ssrc": videoSSRC,
-            },
-        })
+			},
+		})
 
-        other.mu.Unlock()
-    }
+		other.mu.Unlock()
+	}
 }
 
 func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
@@ -254,8 +269,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		}
 	}
 
-	if opusType != 0 {
-		masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", c.UserID, webrtc.SSRC(c.SSRC))
+	if opusType != 0 && c.AudioSSRC != 0 {
+		masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", c.UserID, webrtc.SSRC(c.AudioSSRC))
 
 		if _, err := pc.AddTrack(masterAudio); err != nil {
 			fmt.Printf("AddTrack audio: %v\n", err)
@@ -264,8 +279,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		c.masterWebRTCAudio = masterAudio
 	}
 
-	if videoType != 0 {
-		masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", c.UserID, webrtc.SSRC(c.SSRC + 1)) // fix ASAP.
+	if videoType != 0 && c.VideoSSRC != 0 {
+		masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", c.UserID, webrtc.SSRC(c.VideoSSRC)) // fix ASAP.
 
 		if _, err := pc.AddTrack(masterVideo); err != nil {
 			fmt.Printf("AddTrack video: %v\n", err)
@@ -294,8 +309,33 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	log.Printf("Client %s joined", c.ServerID)
 
 	legacyAnswer := strings.Contains(sdpFragment, "v=")
-	
+
 	var remoteSSRCs []RemoteSSRC
+
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+
+	for _, client := range clients {
+		if client.UserID != c.UserID && client.Protocol == "webrtc" {
+			if client.masterWebRTCAudio != nil {
+				remoteSSRCs = append(remoteSSRCs, RemoteSSRC{
+					SSRC:   int(client.masterWebRTCAudio.ssrc),
+					CName:  client.masterWebRTCAudio.streamID,
+					Typ:    "audio",
+					Active: true,
+				})
+			}
+
+			if client.masterWebRTCVideo != nil {
+				remoteSSRCs = append(remoteSSRCs, RemoteSSRC{
+					SSRC:   int(client.masterWebRTCVideo.ssrc),
+					CName:  client.masterWebRTCVideo.streamID,
+					Typ:    "video",
+					Active: true,
+				})
+			}
+		}
+	}
 
 	fullOffer := generateSessionDescription(
 		true,
@@ -304,7 +344,7 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		"sendrecv",
 		opusType,
 		opusBitrate,
-		videoType, 
+		videoType,
 		videoBitrate,
 		remoteSSRCs,
 	)

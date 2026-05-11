@@ -244,15 +244,11 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
       }
     });
 
-    if (!channel || channel.type !== ChannelType.VOICE || channel.user_limit === undefined) {
+    if (!channel || channel.type !== ChannelType.VOICE || channel.user_limit === undefined || !channel.guild) {
       return;
     }
 
-    if (!channel.guild?.verification_level) {
-      return;
-    }
-
-    if (channel.guild.verification_level > 0) {
+    if (channel.guild.verification_level && channel.guild.verification_level > 0) {
       const memberData = await prisma.member.findUnique({
         where: {
           guild_id_user_id: {

@@ -8,67 +8,67 @@ import (
 
 type SSRC struct {
 	attribute string
-	id int
-	value string
+	id        int
+	value     string
 }
 
 type RemoteSSRC struct {
 	SSRC   int
 	CName  string
-	Typ    string
+	Typ    string // type
 	Active bool
 }
 
 type MediaExt struct {
-	direction string
+	direction  string
 	encryptUri string
-	uri string
-	config string
-	value int
+	uri        string
+	config     string
+	value      int
 }
 
 type MediaRTP struct {
-	payload int
-    codec string
-    rate int
-    encoding int
+	payload  int
+	codec    string
+	rate     int
+	encoding int
 }
 
 type MediaFMTP struct {
 	payload int
-	config string
+	config  string
 }
 
 type MediaBandwidth struct {
-	typ string
+	typ   string
 	limit int
 }
 
 type MediaRTCPFB struct {
 	payload string
-    typ string
-    subtype string
+	typ     string
+	subtype string
 }
 
 type Media struct {
-	typ string
-	protocol string
-	payloads int
-	setup string
-	mid string
-	rtcpMux string
-	direction string
-	msid string
-	ssrcs []SSRC
-	ext []MediaExt
-	rtp []MediaRTP
-	rtcpFb []MediaRTCPFB
-	fmtp []MediaFMTP
-	maxptime int
-	bandwidth []MediaBandwidth
+	typ         string
+	protocol    string
+	payloads    int
+	setup       string
+	mid         string
+	rtcpMux     string
+	direction   string
+	msid        string
+	ssrcs       []SSRC
+	ext         []MediaExt
+	rtp         []MediaRTP
+	rtcpFb      []MediaRTCPFB
+	fmtp        []MediaFMTP
+	maxptime    int
+	bandwidth   []MediaBandwidth
 	fingerprint string
-    iceUfrag    string
-    icePwd      string
+	iceUfrag    string
+	icePwd      string
 	candidates  []string //for the answer
 }
 
@@ -89,108 +89,108 @@ func parseAttribute(val string, m *Media) {
 	attrName := attrParts[0]
 
 	switch attrName {
-		case "sendrecv", "sendonly", "recvonly", "inactive":
-			m.direction = attrName
-			return
-		case "rtcp-mux":
-			m.rtcpMux = "rtcp-mux"
-			return
-		}
+	case "sendrecv", "sendonly", "recvonly", "inactive":
+		m.direction = attrName
+		return
+	case "rtcp-mux":
+		m.rtcpMux = "rtcp-mux"
+		return
+	}
 
-		if len(attrParts) < 2 {
-			return
-		}
-		attrVal := attrParts[1]
+	if len(attrParts) < 2 {
+		return
+	}
+	attrVal := attrParts[1]
 
-		switch attrName {
-			case "setup":
-				m.setup = attrVal
-			case "mid":
-				m.mid = attrVal
-			case "msid":
-				m.msid = attrVal
-			case "fingerprint":
-				m.fingerprint = attrParts[1]
-			case "ice-ufrag":
-				m.iceUfrag = attrParts[1]
-			case "ice-pwd":
-				m.icePwd = attrParts[1]
-			case "maxptime":
-				m.maxptime, _ = strconv.Atoi(attrVal)
-			case "candidate":
-				m.candidates = append(m.candidates, val)
+	switch attrName {
+	case "setup":
+		m.setup = attrVal
+	case "mid":
+		m.mid = attrVal
+	case "msid":
+		m.msid = attrVal
+	case "fingerprint":
+		m.fingerprint = attrParts[1]
+	case "ice-ufrag":
+		m.iceUfrag = attrParts[1]
+	case "ice-pwd":
+		m.icePwd = attrParts[1]
+	case "maxptime":
+		m.maxptime, _ = strconv.Atoi(attrVal)
+	case "candidate":
+		m.candidates = append(m.candidates, val)
 
-			case "rtpmap":
-				// <payload> <codec>/<rate>[/<encoding>]
-				fields := strings.Fields(attrVal)
-				if len(fields) >= 2 {
-					payload, _ := strconv.Atoi(fields[0])
-					codecParts := strings.Split(fields[1], "/")
-					rtp := MediaRTP{payload: payload, codec: codecParts[0]}
-					if len(codecParts) >= 2 {
-						rtp.rate, _ = strconv.Atoi(codecParts[1])
-					}
-					if len(codecParts) >= 3 {
-						rtp.encoding, _ = strconv.Atoi(codecParts[2])
-					}
-					m.rtp = append(m.rtp, rtp)
-				}
-
-			case "fmtp":
-				// <payload> <config>
-				fields := strings.SplitN(attrVal, " ", 2)
-				if len(fields) == 2 {
-					payload, _ := strconv.Atoi(fields[0])
-					m.fmtp = append(m.fmtp, MediaFMTP{payload: payload, config: fields[1]})
-				}
-
-			case "ssrc":
-				// <id> <attribute>[:<value>]
-				fields := strings.Fields(attrVal)
-				if len(fields) >= 2 {
-					id, _ := strconv.Atoi(fields[0])
-					ssrc := SSRC{id: id}
-					kv := strings.SplitN(fields[1], ":", 2)
-					ssrc.attribute = kv[0]
-					if len(kv) == 2 {
-						ssrc.value = kv[1]
-					}
-					m.ssrcs = append(m.ssrcs, ssrc)
-				}
-
-			case "rtcp-fb":
-				// <payload> <type> [<subtype>]
-				fields := strings.Fields(attrVal)
-				if len(fields) >= 2 {
-					fb := MediaRTCPFB{payload: fields[0], typ: fields[1]}
-					if len(fields) >= 3 {
-						fb.subtype = fields[2]
-					}
-					m.rtcpFb = append(m.rtcpFb, fb)
-				}
-
-			case "extmap":
-				// <value>[/<direction>] <uri> [<config>]
-				fields := strings.Fields(attrVal)
-				if len(fields) >= 2 {
-					ext := MediaExt{uri: fields[1]}
-					valDir := strings.Split(fields[0], "/")
-					ext.value, _ = strconv.Atoi(valDir[0])
-					if len(valDir) == 2 {
-						ext.direction = valDir[1]
-					}
-					if len(fields) >= 3 {
-						ext.config = fields[2]
-					}
-					m.ext = append(m.ext, ext)
-				}
+	case "rtpmap":
+		// <payload> <codec>/<rate>[/<encoding>]
+		fields := strings.Fields(attrVal)
+		if len(fields) >= 2 {
+			payload, _ := strconv.Atoi(fields[0])
+			codecParts := strings.Split(fields[1], "/")
+			rtp := MediaRTP{payload: payload, codec: codecParts[0]}
+			if len(codecParts) >= 2 {
+				rtp.rate, _ = strconv.Atoi(codecParts[1])
 			}
+			if len(codecParts) >= 3 {
+				rtp.encoding, _ = strconv.Atoi(codecParts[2])
+			}
+			m.rtp = append(m.rtp, rtp)
+		}
+
+	case "fmtp":
+		// <payload> <config>
+		fields := strings.SplitN(attrVal, " ", 2)
+		if len(fields) == 2 {
+			payload, _ := strconv.Atoi(fields[0])
+			m.fmtp = append(m.fmtp, MediaFMTP{payload: payload, config: fields[1]})
+		}
+
+	case "ssrc":
+		// <id> <attribute>[:<value>]
+		fields := strings.Fields(attrVal)
+		if len(fields) >= 2 {
+			id, _ := strconv.Atoi(fields[0])
+			ssrc := SSRC{id: id}
+			kv := strings.SplitN(fields[1], ":", 2)
+			ssrc.attribute = kv[0]
+			if len(kv) == 2 {
+				ssrc.value = kv[1]
+			}
+			m.ssrcs = append(m.ssrcs, ssrc)
+		}
+
+	case "rtcp-fb":
+		// <payload> <type> [<subtype>]
+		fields := strings.Fields(attrVal)
+		if len(fields) >= 2 {
+			fb := MediaRTCPFB{payload: fields[0], typ: fields[1]}
+			if len(fields) >= 3 {
+				fb.subtype = fields[2]
+			}
+			m.rtcpFb = append(m.rtcpFb, fb)
+		}
+
+	case "extmap":
+		// <value>[/<direction>] <uri> [<config>]
+		fields := strings.Fields(attrVal)
+		if len(fields) >= 2 {
+			ext := MediaExt{uri: fields[1]}
+			valDir := strings.Split(fields[0], "/")
+			ext.value, _ = strconv.Atoi(valDir[0])
+			if len(valDir) == 2 {
+				ext.direction = valDir[1]
+			}
+			if len(fields) >= 3 {
+				ext.config = fields[2]
+			}
+			m.ext = append(m.ext, ext)
+		}
+	}
 }
 
 func parseMedia(baseSDP string) ([]Media, error) {
 	if !strings.Contains(baseSDP, "m=") {
-        baseSDP = "m=audio 9 UDP/TLS/RTP/SAVPF 0\n" + baseSDP
-    }
+		baseSDP = "m=audio 9 UDP/TLS/RTP/SAVPF 0\n" + baseSDP
+	}
 
 	lines := strings.Split(baseSDP, "\n")
 	var mediaList []Media
@@ -211,37 +211,37 @@ func parseMedia(baseSDP string) ([]Media, error) {
 		val := parts[1]
 
 		switch key {
-			case "m":
-				if currentMedia != nil && (currentMedia.typ != "session" || len(currentMedia.fingerprint) > 0) {
-					mediaList = append(mediaList, *currentMedia)
-				}
-				currentMedia = &Media{}
+		case "m":
+			if currentMedia != nil && (currentMedia.typ != "session" || len(currentMedia.fingerprint) > 0) {
+				mediaList = append(mediaList, *currentMedia)
+			}
+			currentMedia = &Media{}
 
-				//m=<type> <port> <proto> <fmt>...
-				mParts := strings.Fields(val)
-				if len(mParts) >= 3 {
-					currentMedia.typ = mParts[0]
-					currentMedia.protocol = mParts[2]
-					if len(mParts) >= 4 {
-						currentMedia.payloads, _ = strconv.Atoi(mParts[3])
-					}
+			//m=<type> <port> <proto> <fmt>...
+			mParts := strings.Fields(val)
+			if len(mParts) >= 3 {
+				currentMedia.typ = mParts[0]
+				currentMedia.protocol = mParts[2]
+				if len(mParts) >= 4 {
+					currentMedia.payloads, _ = strconv.Atoi(mParts[3])
 				}
-			
-			case "a":
-				parseAttribute(val, currentMedia)
-			
-			case "b":
-				if currentMedia != nil {
-					//b=<type>:<limit>
-					bParts := strings.SplitN(val, ":", 2)
-					if len(bParts) == 2 {
-						limit, _ := strconv.Atoi(bParts[1])
-						currentMedia.bandwidth = append(currentMedia.bandwidth, MediaBandwidth{
-							typ: bParts[0],
-							limit: limit,
-						})
-					}
+			}
+
+		case "a":
+			parseAttribute(val, currentMedia)
+
+		case "b":
+			if currentMedia != nil {
+				//b=<type>:<limit>
+				bParts := strings.SplitN(val, ":", 2)
+				if len(bParts) == 2 {
+					limit, _ := strconv.Atoi(bParts[1])
+					currentMedia.bandwidth = append(currentMedia.bandwidth, MediaBandwidth{
+						typ:   bParts[0],
+						limit: limit,
+					})
 				}
+			}
 		}
 	}
 
@@ -299,7 +299,7 @@ func makeSDP(mediaList []Media) string {
 		}
 
 		if m.fingerprint != "" {
-   		 	b.WriteString(fmt.Sprintf("a=fingerprint:%s\r\n", m.fingerprint))
+			b.WriteString(fmt.Sprintf("a=fingerprint:%s\r\n", m.fingerprint))
 		}
 
 		if m.iceUfrag != "" {
@@ -364,7 +364,7 @@ func makeSDP(mediaList []Media) string {
 
 			b.WriteString(line + "\r\n")
 		}
-        
+
 		for _, bw := range m.bandwidth {
 			b.WriteString(fmt.Sprintf("b=%s:%d\r\n", bw.typ, bw.limit))
 		}
@@ -385,17 +385,17 @@ func makeMedia(mid string, typ string, setup string, direction string, baseSDP s
 	}
 
 	m := Media{
-		typ:       typ,
-		protocol:  template.protocol,
-		payloads:  payload,
-		setup:     setup,
-		mid:       mid,
-		direction: direction,
-		rtcpMux:   "rtcp-mux",
-		ssrcs:     ssrcs,
+		typ:         typ,
+		protocol:    template.protocol,
+		payloads:    payload,
+		setup:       setup,
+		mid:         mid,
+		direction:   direction,
+		rtcpMux:     "rtcp-mux",
+		ssrcs:       ssrcs,
 		fingerprint: template.fingerprint,
-        iceUfrag:    template.iceUfrag,
-        icePwd:      template.icePwd,
+		iceUfrag:    template.iceUfrag,
+		icePwd:      template.icePwd,
 	}
 
 	for _, r := range template.rtp {
@@ -432,7 +432,7 @@ func generateSessionDescription(isFirefox bool, sdpType string, baseSDP string, 
 	} //full SDP - legacy offer/answer system
 
 	var mediaList []Media
-	setup := "active" //actpass
+	setup := "active" //When using actpass the client passes ICE then disconnects afterwards, to any contributors: be advised before changing.
 
 	if sdpType == "answer" {
 		setup = "passive"
@@ -473,7 +473,7 @@ func generateSessionDescription(isFirefox bool, sdpType string, baseSDP string, 
 		var audioSSRCs []SSRC
 		var videoSSRCs []SSRC
 
-		for _,s := range remoteSSRCs {
+		for _, s := range remoteSSRCs {
 			if !s.Active {
 				continue
 			}
@@ -504,43 +504,43 @@ func makeAnswer(localSDP string, serverIP string, serverPort int, legacyAnswer b
 	}
 
 	var iceUfrag, icePwd, fingerprint string
-    var candidateLine string
+	var candidateLine string
 
 	for _, m := range medias {
-        if m.fingerprint != "" {
-            fingerprint = m.fingerprint
-        }
-        if m.iceUfrag != "" {
-            iceUfrag = m.iceUfrag
-            icePwd = m.icePwd
-        }
-        if len(m.candidates) > 0 && candidateLine == "" {
-            candidateLine = m.candidates[0]
-        }
-    }
+		if m.fingerprint != "" {
+			fingerprint = m.fingerprint
+		}
+		if m.iceUfrag != "" {
+			iceUfrag = m.iceUfrag
+			icePwd = m.icePwd
+		}
+		if len(m.candidates) > 0 && candidateLine == "" {
+			candidateLine = m.candidates[0]
+		}
+	}
 
-    // (2=transport, 3=foundation, 4=address, 5=port)
+	// (2=transport, 3=foundation, 4=address, 5=port)
 
-    cParts := strings.Fields(candidateLine)
-    transport := "UDP"
-    addr := serverIP
-    port := strconv.Itoa(serverPort)
+	cParts := strings.Fields(candidateLine)
+	transport := "UDP"
+	addr := serverIP
+	port := strconv.Itoa(serverPort)
 
-    if len(cParts) >= 8 {
-        transport = cParts[2]
-        addr = cParts[4]
-        port = cParts[5]
-    }
+	if len(cParts) >= 8 {
+		transport = cParts[2]
+		addr = cParts[4]
+		port = cParts[5]
+	}
 
-    var b strings.Builder
-	
-    b.WriteString(fmt.Sprintf("m=audio %d ICE/SDP\n", serverPort))
-    b.WriteString(fmt.Sprintf("a=fingerprint:%s\n", fingerprint))
-    b.WriteString(fmt.Sprintf("c=IN IP4 %s\n", serverIP))
-    b.WriteString(fmt.Sprintf("a=rtcp:%d\n", serverPort))
-    b.WriteString(fmt.Sprintf("a=ice-ufrag:%s\n", iceUfrag))
-    b.WriteString(fmt.Sprintf("a=ice-pwd:%s\n", icePwd))
-    b.WriteString(fmt.Sprintf("a=candidate:1 1 %s 2122260223 %s %s typ host\n", transport, addr, port))
+	var b strings.Builder
 
-    return b.String()
+	b.WriteString(fmt.Sprintf("m=audio %d ICE/SDP\n", serverPort))
+	b.WriteString(fmt.Sprintf("a=fingerprint:%s\n", fingerprint))
+	b.WriteString(fmt.Sprintf("c=IN IP4 %s\n", serverIP))
+	b.WriteString(fmt.Sprintf("a=rtcp:%d\n", serverPort))
+	b.WriteString(fmt.Sprintf("a=ice-ufrag:%s\n", iceUfrag))
+	b.WriteString(fmt.Sprintf("a=ice-pwd:%s\n", icePwd))
+	b.WriteString(fmt.Sprintf("a=candidate:1 1 %s 2122260223 %s %s typ host\n", transport, addr, port))
+
+	return b.String()
 }
