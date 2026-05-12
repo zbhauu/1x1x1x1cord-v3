@@ -14,8 +14,8 @@ import type { Role } from "../../types/role.ts";
 import { ChannelType } from "../../types/channel.ts";
 import { ChannelService } from "./channelService.ts";
 import type WebSocket from 'ws';
-import ctx from "../../context.ts";
 import type { Session } from "../../types/session.ts";
+import lazyRequest from "../../helpers/lazyRequest.ts";
 
 export const GuildService = {
     _formatResponse(guild: any): Guild {
@@ -81,8 +81,7 @@ export const GuildService = {
             widget_enabled: false,
             widget_channel_id: null,
             premium_progress_bar_enabled: guild.premium_progress_bar_enabled ?? false,
-            unavailable: guild.unavailable ?? false,
-            voice_states: ctx.guild_voice_states.get(guild.id) || []
+            unavailable: guild.unavailable ?? false
         };
     },
 
@@ -245,6 +244,8 @@ export const GuildService = {
             ...memberObj,
             guild_id: guild_id,
         });
+
+        await lazyRequest.syncMemberList(guild_id, memberObj.user_id);
 
         await dispatcher.dispatchEventInGuild(guild.id, 'PRESENCE_UPDATE', {
             ...globalUtils.getUserPresence({

@@ -98,53 +98,61 @@ func FindClientByVideoSSRC(video_ssrc uint32) *RTCClient {
 }
 
 func TryBroadcastUDP(p *rtp.Packet, channelId string, senderID string, senderSSRC uint32, packetType string) {
-	now := time.Now().UnixMilli()
-
-	var shouldSendSpeaking bool
-
-	speakingStateMu.Lock()
-	state, exists := speakingState[senderSSRC]
-	speakingStateMu.Unlock()
+	var officialSSRC uint32
+    clientsMu.RLock()
+    senderClient, exists := clients[senderID]
+    clientsMu.RUnlock()
 
 	if !exists {
-		state = &SpeakingState{}
-		speakingState[senderSSRC] = state
-	}
+        return
+    }
 
-	if now-state.lastSent > 500 {
-		shouldSendSpeaking = true
-		state.lastSent = now
-	}
+    if packetType == "audio" {
+        officialSSRC = senderClient.AudioSSRC
+    } else {
+        officialSSRC = senderClient.VideoSSRC
+    }
 
-	clientsMu.RLock()
+	now := time.Now().UnixMilli()
+    var shouldSendSpeaking bool
+
+	speakingStateMu.Lock()
+    state, exists := speakingState[officialSSRC]
+
+    if !exists {
+        state = &SpeakingState{}
+        speakingState[officialSSRC] = state
+    }
+
+    if now-state.lastSent > 500 {
+        shouldSendSpeaking = true
+        state.lastSent = now
+    }
+    speakingStateMu.Unlock()
+
+    clientsMu.RLock()
+
 	for _, client := range clients {
-		if client.ChannelID != channelId {
-			continue
-		}
-
-		if packetType == "audio" && client.AudioSSRC == senderSSRC {
-			continue
-		}
-
-		if packetType == "video" && client.VideoSSRC == senderSSRC {
+		if client.ChannelID != channelId || client.UserID == senderID {
 			continue
 		}
 
 		if client.Protocol == "webrtc" {
-			if client.masterWebRTCAudio != nil {
-				err := client.masterWebRTCAudio.WriteRTP(p)
-				if err != nil {
-					fmt.Printf("%v", err)
-				}
-			}
+			p.SSRC = officialSSRC
+
+			if packetType == "audio" && client.masterWebRTCAudio != nil {
+                client.masterWebRTCAudio.WriteRTP(p)
+            } else if packetType == "video" && client.masterWebRTCVideo != nil {
+                client.masterWebRTCVideo.WriteRTP(p)
+            }
 		}
 
 		if client.Protocol == "udp" {
-			client.SendUDP(p, senderSSRC)
+			client.SendUDP(p, officialSSRC)
 		}
 
 		if shouldSendSpeaking {
-			client.SendSpeakingEvent(senderID, senderSSRC)
+			client.SendSpeakingEvent(senderID, officialSSRC)
 		}
 	}
 	clientsMu.RUnlock()
@@ -225,8 +233,13 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, currentUserID *stri
 	//CheckAndForwardExistingTracks(client.ServerID, client.UserID)
 }
 
-func subscribeAndNotifyOthers(subKey string, userID string, ssrc uint32, videoSsrc uint32) {
+func subscribeAndNotifyOthers(subKey string, userID string, audio_ssrc uint32, video_ssrc uint32, isVideo bool) {
 	clientsMu.Lock()
+	publisher := clients[userID]
+	clientsMu.Unlock()
+
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
 
 	for _, other := range clients {
 		if other.Protocol == "webrtc" && other.UserID != userID {
@@ -244,32 +257,37 @@ func subscribeAndNotifyOthers(subKey string, userID string, ssrc uint32, videoSs
 				"op": OpSSRCUpdate,
 				"d": map[string]interface{}{
 					"user_id":    userID,
-					"audio_ssrc": ssrc,
-					"video_ssrc": videoSsrc,
+					"audio_ssrc": audio_ssrc,
+					"video_ssrc": video_ssrc,
 				},
 			})
+
+			if isVideo && publisher != nil {
+                publisher.RequestKeyFrame(video_ssrc)
+            }
 		}
 	}
-
-	clientsMu.Unlock()
 }
 
 func (c *RTCClient) setupOnWebRTCTrack() {
 	c.pc.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		var ssrc uint32
 		var trackType string
 		if remoteTrack.Kind() == webrtc.RTPCodecTypeAudio && remoteTrack.Codec().MimeType == webrtc.MimeTypeOpus {
 			trackType = "audio"
+			ssrc = c.AudioSSRC
 		} else if remoteTrack.Kind() == webrtc.RTPCodecTypeVideo && remoteTrack.Codec().MimeType == webrtc.MimeTypeH264 {
 			trackType = "video"
+			ssrc = c.VideoSSRC
 		} else {
 			log.Printf("Client %s started publishing unknown track type %s", c.UserID, remoteTrack.Codec().MimeType)
 			return
 		}
 
-		ssrc := webrtc.SSRC(remoteTrack.SSRC())
+		//ssrc := webrtc.SSRC(remoteTrack.SSRC())
 
 		pt := &PublishedWebRTCTrack{
-			ssrc: ssrc,
+			ssrc: webrtc.SSRC(ssrc),
 			stop: make(chan struct{}),
 		}
 
@@ -281,7 +299,7 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 
 		subKey := c.UserID + "_" + trackType
 
-		go subscribeAndNotifyOthers(subKey, c.UserID, uint32(ssrc), 0)
+		go subscribeAndNotifyOthers(subKey, c.UserID, c.AudioSSRC, c.VideoSSRC, trackType == "video")
 		// Forward RTP packets to all subscribed peers
 		go func() {
 
@@ -302,8 +320,13 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 					return
 				}
 
-				// Preserve original SSRC so the client can demultiplex
-				rtpPkt.SSRC = uint32(ssrc)
+				if trackType == "audio" {
+					rtpPkt.SSRC = c.AudioSSRC
+				} else {
+					rtpPkt.SSRC = c.VideoSSRC
+				}
+
+				//rtpPkt.SSRC = uint32(ssrc)
 
 				// Fan-out to all subscribers
 

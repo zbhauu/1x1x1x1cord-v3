@@ -269,7 +269,7 @@ class session implements Session {
       include: {
         members: {
           include: { 
-            user: true 
+            user: true,
           }
         },
         channels: true,
@@ -465,7 +465,7 @@ class session implements Session {
         },
         include: {
           members: { 
-            include: { user: true }
+            include: { user: true}
           },
           roles: true,
           channels: true
@@ -497,7 +497,7 @@ class session implements Session {
             const miniUser = globalUtils.miniUserObject(m.user as User);
 
             allUsers.set(miniUser.id, miniUser);
-            
+
             return {
               user: miniUser,
               roles: Array.isArray(m.roles) ? m.roles : [],
@@ -653,6 +653,8 @@ class session implements Session {
           guild.guild_scheduled_events = [];
           guild.stage_instances = [];
 
+          guild.voice_states = ctx.guild_voice_states.get(guild.id) ?? []; //just in case
+
           readyGuilds.push(guild);
       }
 
@@ -709,8 +711,6 @@ class session implements Session {
 
         chan = globalUtils.personalizeChannelObject(this.socket, chan as Channel);
 
-        console.log(chan);
-        
         if (!chan) continue;
 
         // thanks spacebar

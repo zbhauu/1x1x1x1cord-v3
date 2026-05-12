@@ -26,6 +26,8 @@ import { AuditLogService } from './services/auditLogService.ts';
 import { AuditLogActionType } from '../types/auditlog.ts';
 import { prisma } from '../prisma.ts';
 import type { WebSocket } from "ws";
+import type { User } from '../types/user.ts';
+import lazyRequest from '../helpers/lazyRequest.ts';
 
 const router = Router({
   mergeParams: true
@@ -236,6 +238,8 @@ async function guildDeleteRequest(req: Request, res: Response) {
         user: globalUtils.miniUserObject(user),
         guild_id: String(req.params.guildid),
       });
+
+      await lazyRequest.syncMemberList(req.guild.id, user.id);
 
       return res.status(204).send();
     }
@@ -581,7 +585,7 @@ router.post(
   guildPermissionsMiddleware('MANAGE_GUILD'),
   async (req: Request, res: Response) => {
     try {
-      const days = parseInt(req.body.days as string) || 7;
+      const days = parseInt((req.query?.days ?? req.body?.days ?? 7) as string);
       const prune = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       const guildId = req.params.guildid as string;
       const members = await prisma.member.findMany({
@@ -597,7 +601,16 @@ router.post(
           }
         },
         select: {
-          user_id: true
+          user_id: true,
+          user: {
+            select: {
+              username: true,
+              discriminator: true,
+              avatar: true,
+              bot: true,
+              id: true
+            }
+          }
         }
       });
 
@@ -609,10 +622,18 @@ router.post(
             guild_id: guildId,
             user_id: {
               in: members.map(m => m.user_id)
-            }
-          }
+            },
+          },
         });
 
+        for (var member of members) {
+          await dispatcher.dispatchEventInGuild(guildId, "GUILD_MEMBER_REMOVE", {
+            type: 'prune',
+            user: globalUtils.miniUserObject(member.user as User),
+            guild_id: String(req.params.guildid),
+          });
+        }
+  
         await AuditLogService.insertEntry(
           guildId,
           req.account.id,
@@ -626,6 +647,8 @@ router.post(
           }
         );
       }
+
+      await lazyRequest.syncMemberList(req.guild.id, req.account.id);
 
       return res.status(200).json({ pruned: membersFuckingDestroyed });
     }

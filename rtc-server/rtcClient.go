@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
@@ -25,6 +26,7 @@ type RTCClient struct {
 	Protocol             string
 	AudioSSRC            uint32
 	VideoSSRC            uint32
+	lastPLITime			 time.Time
 	RtxAudioSSRC         uint32 //when the SFU detects a sequence number jump, assign this to the last ssrc
 	RtxVideoSSRC         uint32
 	Video                bool
@@ -64,15 +66,9 @@ func NewRTCClient(userID string, serverID string, channelID string, sessionId st
 		RtxAudioSSRC: audio_ssrc,
 		VideoSSRC:    video_ssrc,
 		RtxVideoSSRC: video_ssrc,
+		lastPLITime:  time.Now(),
 		Protocol:     "Unchosen",
 	}
-}
-
-func (p *RTCClient) getPublishedWebRTCTrack(trackType string) *PublishedWebRTCTrack {
-	if trackType == "audio" {
-		return p.audioWebRTCPublished
-	}
-	return p.videoWebRTCPublished
 }
 
 func (c *RTCClient) SafeWrite(v interface{}) error {
@@ -221,7 +217,7 @@ func (c *RTCClient) SubscribeToExistingTracks() {
 		if other.masterWebRTCVideo != nil {
 			subKeyVideo := other.UserID + "_video"
 
-			videoSSRC = uint32(other.masterWebRTCAudio.ssrc)
+			videoSSRC = uint32(other.masterWebRTCVideo.ssrc)
 			c.mu.Lock()
 			c.subscriptions[subKeyVideo] = true
 			c.mu.Unlock()
@@ -240,6 +236,31 @@ func (c *RTCClient) SubscribeToExistingTracks() {
 
 		other.mu.Unlock()
 	}
+}
+
+func (c *RTCClient) RequestKeyFrame(ssrc uint32) {
+	c.mu.Lock()
+    now := time.Now()
+
+    if now.Sub(c.lastPLITime) < time.Second {
+        c.mu.Unlock()
+        return
+    }
+
+    c.lastPLITime = now
+    c.mu.Unlock()
+
+    if c.pc == nil {
+        return
+    }
+
+    // "Someone needs a full frame right fucking now."
+    err := c.pc.WriteRTCP([]rtcp.Packet{
+        &rtcp.PictureLossIndication{MediaSSRC: ssrc},
+    })
+    if err != nil {
+        fmt.Printf("Error sending PLI: %v\n", err)
+    }
 }
 
 func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
@@ -280,7 +301,7 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	}
 
 	if videoType != 0 && c.VideoSSRC != 0 {
-		masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", c.UserID, webrtc.SSRC(c.VideoSSRC)) // fix ASAP.
+		masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", c.UserID, webrtc.SSRC(c.VideoSSRC))
 
 		if _, err := pc.AddTrack(masterVideo); err != nil {
 			fmt.Printf("AddTrack video: %v\n", err)
@@ -319,8 +340,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		if client.UserID != c.UserID && client.Protocol == "webrtc" {
 			if client.masterWebRTCAudio != nil {
 				remoteSSRCs = append(remoteSSRCs, RemoteSSRC{
-					SSRC:   int(client.masterWebRTCAudio.ssrc),
-					CName:  client.masterWebRTCAudio.streamID,
+					SSRC:   int(client.AudioSSRC),
+					CName:  client.UserID,
 					Typ:    "audio",
 					Active: true,
 				})
@@ -328,8 +349,8 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 
 			if client.masterWebRTCVideo != nil {
 				remoteSSRCs = append(remoteSSRCs, RemoteSSRC{
-					SSRC:   int(client.masterWebRTCVideo.ssrc),
-					CName:  client.masterWebRTCVideo.streamID,
+					SSRC:   int(client.VideoSSRC),
+					CName:  client.UserID,
 					Typ:    "video",
 					Active: true,
 				})

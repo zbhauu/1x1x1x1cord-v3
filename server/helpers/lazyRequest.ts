@@ -73,14 +73,14 @@ const lazyRequest = {
     const READ_MESSAGES = permissions.toObject().READ_MESSAGES;
     const everyoneOverwrite = channel.permission_overwrites?.find((ov) => ov.id === everyoneRole.id);
 
-    let everyoneCanView: any = everyoneRole.permissions & READ_MESSAGES;
+    let everyoneCanView: number | boolean = everyoneRole.permissions & READ_MESSAGES;
 
     if (everyoneOverwrite && everyoneOverwrite.deny & READ_MESSAGES) {
       everyoneCanView = false;
     }
 
     const otherDenyRules = channel.permission_overwrites?.some(
-      (ov: any) => ov.id !== everyoneRole.id && ov.deny & READ_MESSAGES,
+      (ov) => ov.id !== everyoneRole.id && ov.deny & READ_MESSAGES,
     );
 
     if (everyoneCanView && !otherDenyRules) {
@@ -103,7 +103,59 @@ const lazyRequest = {
 
     return murmur3(perms.sort().join(','), 0).toString();
   },
-  computeMemberList: async (guild_id: string, channel: Channel, ranges: [number, number], bypassPerms = false): Promise<any> => {
+  computePermissionsSync: (member: any, guild: any, channel: any, roles: any[]): bigint => {
+    if (guild.owner_id === member.user_id) return BigInt(8) | BigInt(104193089);
+
+    const everyoneRole = roles.find(r => r.role_id === guild.id);
+
+    let perms = BigInt(everyoneRole?.permissions ?? 0);
+
+    const memberRoleIds = member.roles as string[];
+
+    for (const roleId of memberRoleIds) {
+      const role = roles.find(r => r.role_id === roleId);
+
+      if (role) perms |= BigInt(role.permissions);
+    }
+
+    const ADMIN_BIT = BigInt(8);
+
+    if ((perms & ADMIN_BIT) === ADMIN_BIT) return perms;
+
+    const overwrites = (channel.permission_overwrites as any[]) || [];
+    const everyoneOverwrite = overwrites.find(o => o.id === guild.id);
+
+    if (everyoneOverwrite) {
+      perms &= ~BigInt(everyoneOverwrite.deny);
+      perms |= BigInt(everyoneOverwrite.allow);
+    }
+
+    let roleAllow = BigInt(0);
+    let roleDeny = BigInt(0);
+
+    for (const roleId of memberRoleIds) {
+      const overwrite = overwrites.find(o => o.id === roleId);
+
+      if (overwrite) {
+        roleAllow |= BigInt(overwrite.allow);
+        roleDeny |= BigInt(overwrite.deny);
+      }
+    }
+
+    perms &= ~roleDeny;
+    perms |= roleAllow;
+
+    const memberOverwrite = overwrites.find(o => o.id === member.user_id);
+
+    if (memberOverwrite) {
+      perms &= ~BigInt(memberOverwrite.deny);
+      perms |= BigInt(memberOverwrite.allow);
+    }
+
+    return perms;
+  },
+  computeMemberList: async (guild_id: string, channel_id: string, ranges: [number, number], bypassPerms = false): Promise<any> => {
+
     function arrayPartition<T>(array: T[], callback: (elem: T) => boolean): [T[], T[]] {
       return array.reduce(
         ([pass, fail], elem): [T[], T[]] => {
@@ -128,35 +180,32 @@ const lazyRequest = {
       };
     }
 
-    const guild_members = await prisma.member.findMany({
-      where: {
-        guild_id: guild_id
-      },
-      select: {
-        nick: true,
+   const guildData = await prisma.guild.findUnique({
+      where: { id: guild_id },
+      include: {
         roles: true,
-        joined_at: true,
-        user_id: true,
-        guild_id: true,
-        deaf: true,
-        mute: true,
-        user: {
-          select: PUBLIC_USER_SELECT
+        members: {
+          include: {
+            user: { select: PUBLIC_USER_SELECT }
+          }
+        },
+        channels: {
+          where: { id: channel_id }
         }
       }
     });
 
-    const guild_roles = await prisma.role.findMany({
-      where: {
-        guild_id: guild_id
-      },
-      select: {
-        hoist: true,
-        position: true
-      }
-    })
+    if (!guildData || !guildData.channels[0]) return { ops: [], groups: [], items: [], count: 0 };
 
-    const members: Member[] = guild_members.map(m => ({
+    const channel = guildData.channels[0];
+    const roles = guildData.roles;
+    const READ_MESSAGES = BigInt(1 << 10);
+
+    const visibleMembers = guildData.members.filter((m) => {
+      if (bypassPerms) return true;
+      const perms = lazyRequest.computePermissionsSync(m, guildData, channel, roles);
+      return (perms & READ_MESSAGES) === READ_MESSAGES || (perms & BigInt(8)) === BigInt(8);
+    }).map(m => ({
       ...m,
       roles: m.roles as string[],
       user: {
@@ -167,15 +216,6 @@ const lazyRequest = {
         bot: !!m.user.bot
       }
     })) as Member[];
-
-    const permissionPromises = members?.map(async (m) => {
-      const hasPerm = await permissions.hasChannelPermissionTo(channel.id, guild_id, m.user.id, 'READ_MESSAGES');
-      return { member: m, canSee: hasPerm || bypassPerms };
-    }) || [];
-
-    const results = await Promise.all(permissionPromises);
-
-    const visibleMembers = results.filter(r => r.canSee).map(r => r.member);
 
     const sortedMembers = [...visibleMembers].sort((a, b) => {
       const pA = globalUtils.getUserPresence(a);
@@ -196,21 +236,21 @@ const lazyRequest = {
 
     let remainingMembers: Member[] = [...sortedMembers];
 
-    const hoistedRoles = (guild_roles || [])
+    const hoistedRoles = (guildData.roles || [])
       .filter((r) => r.hoist)
       .sort((a, b) => b.position - a.position);
 
-    hoistedRoles.forEach((role: any) => {
+    hoistedRoles.forEach((role) => {
       const [roleMembers, others] = arrayPartition(remainingMembers, (m: Member) => {
         if (placedUserIds.has(m.user.id)) return false;
 
         const p = globalUtils.getUserPresence(m);
 
-        return p && p.status !== 'offline' && m.roles.includes(role.id);
+        return p && p.status !== 'offline' && m.roles.includes(role.role_id);
       });
 
       if (roleMembers.length > 0) {
-        const group: any = { id: role.id, count: roleMembers.length };
+        const group: any = { id: role.role_id, count: roleMembers.length };
         groups.push(group);
         allItems.push({ group });
 
@@ -334,7 +374,7 @@ const lazyRequest = {
 
     const { ops, groups, items, count } = await lazyRequest.computeMemberList(
       everyoneRole.guild_id,
-      channel,
+      channel.id,
       subData.ranges,
     );
 
@@ -365,7 +405,9 @@ const lazyRequest = {
         const otherSession = this;
         const guildSubs = otherSession.subscriptions[guild_id];
 
-        if (!guildSubs) return null;
+        if (!guildSubs) {
+          return null;
+        }
         
         const everyoneRole = await prisma.role.findUnique({
           where: {
@@ -488,48 +530,52 @@ const lazyRequest = {
       false,
       'GUILD_MEMBER_LIST_UPDATE',
     );
-  }, //GatewayMemberChunksPacket
+  },
   fire: async (socket: WebSocket, packet: any) => {
     if (!socket.session) return;
 
     const { guild_id, channels, members: memberIds } = packet.d;
 
-    if (!guild_id || !channels) return;
+    if (!guild_id) return;
 
     const guild = await GuildService.getById(guild_id);
 
-    if (!guild) return;
+    if (!guild) {
+       return;
+    }
 
     if (!socket.session.subscriptions[guild_id]) {
       socket.session.subscriptions[guild_id] = {};
     }
 
-    for (const [channelId, ranges] of Object.entries(channels)) {
-      const channel = guild.channels?.find((x) => x.id === channelId);
+    if (memberIds && Array.isArray(memberIds) && memberIds.length > 0) {
+      memberIds.forEach(async (id) => {
+        const presences = await globalUtils.getGuildPresences(guild.id);
+        const presence = presences.find((p) => p.user.id === id); //cant trust guild.presences
 
-      if (!channel) continue;
+        if (presence) {
+          socket.session.dispatch('PRESENCE_UPDATE', {
+            ...presence,
+            guild_id: guild.id
+          });
+        }
+      });
+    }
 
-      socket.session.subscriptions[guild_id][channelId] = {
-        ranges: ranges,
-      };
+    if (channels) {
+      for (const [channelId, ranges] of Object.entries(channels)) {
+        const channel = guild.channels?.find((x) => x.id === channelId);
 
-      if (Array.isArray(memberIds)) {
-        memberIds.forEach(async (id) => {
-          const presences = await globalUtils.getGuildPresences(guild.id);
-          const presence = presences.find((p) => p.user.id === id); //cant trust guild.presences
+        if (!channel) continue;
 
-          if (presence) {
-            socket.session.dispatch('PRESENCE_UPDATE', {
-              ...presence,
-              guild_id: guild.id
-            });
-          }
+        socket.session.subscriptions[guild_id][channelId] = {
+          ranges: ranges,
+        };
+
+        await lazyRequest.handleMembersSync(socket.session, channel, guild.id, {
+          ranges: ranges,
         });
       }
-
-      await lazyRequest.handleMembersSync(socket.session, channel, guild.id, {
-        ranges: ranges,
-      });
     }
   },
 };

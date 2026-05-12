@@ -341,7 +341,12 @@ const globalUtils = {
       presences.push(presence);
     }
 
-    return presences;
+    return guildMembers.map((guildMember) => {
+      return {
+        ...globalUtils.getUserPresence(member),
+        roles: guildMember.roles as unknown as string[] 
+      }
+    });
   },
   generateMemorableInviteCode: (): string => {
     const words = [

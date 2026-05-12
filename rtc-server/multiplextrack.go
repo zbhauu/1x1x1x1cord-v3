@@ -87,14 +87,14 @@ func (t *MultiplexTrack) WriteRTP(p *rtp.Packet) error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	outboundPacket := *p
-
 	// write without rewriting the SSRC, but DO rewrite the Payload Type!
 	// keeping the sender SSRC simplifies our signaling work. However, payload type 
 	// must be kept from the receiver client offer since each browser uses a different one
 	for _, b := range t.bindings {
-		outboundPacket.Header.PayloadType = b.payloadType
-		if _, err := b.writeStream.WriteRTP(&outboundPacket.Header, outboundPacket.Payload); err != nil {
+		pkt := *p
+		pkt.Header.PayloadType = b.payloadType
+
+		if _, err := b.writeStream.WriteRTP(&pkt.Header, pkt.Payload); err != nil {
 			return err
 		}
 	}

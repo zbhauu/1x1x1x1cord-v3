@@ -63,7 +63,7 @@ router.delete(
       }
 
       await dispatcher.dispatchEventTo(member.user.id, 'GUILD_DELETE', {
-        id: req.params.guildid,
+        id: req.params.guildid as string,
       });
 
       await dispatcher.dispatchEventInGuild(req.guild.id, 'GUILD_MEMBER_REMOVE', {
@@ -72,6 +72,8 @@ router.delete(
         user: globalUtils.miniUserObject(member.user!! as User),
         guild_id: String(req.params.guildid),
       });
+
+      await lazyRequest.syncMemberList(req.guild.id, sender.id);
 
       return res.status(204).send();
     } catch (error) {

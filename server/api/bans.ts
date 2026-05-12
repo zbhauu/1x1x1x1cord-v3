@@ -11,6 +11,7 @@ import { prisma } from '../prisma.ts';
 import type { User } from '../types/user.ts';
 import { AuditLogService } from './services/auditLogService.ts';
 import { AuditLogActionType } from '../types/auditlog.ts';
+import lazyRequest from '../helpers/lazyRequest.ts';
 
 //to-do move to use a service
 
@@ -115,6 +116,8 @@ router.put(
           user: globalUtils.miniUserObject(member?.user as User),
           guild_id: String(req.params.guildid),
         });
+
+         await lazyRequest.syncMemberList(req.guild.id, sender.id);
       }
 
       if (req.query['delete-message-days']) {

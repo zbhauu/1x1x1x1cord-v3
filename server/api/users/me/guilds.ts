@@ -9,6 +9,7 @@ import type { Request, Response } from "express";
 import { prisma } from '../../../prisma.ts';
 import { cacheForMiddleware } from '../../../helpers/middlewares.ts';
 import ctx from '../../../context.ts';
+import lazyRequest from '../../../helpers/lazyRequest.ts';
 
 const router = Router();
 
@@ -51,6 +52,8 @@ router.delete(
             user: globalUtils.miniUserObject(user),
             guild_id: String(req.params.guildid),
           });
+
+          await lazyRequest.syncMemberList(req.guild.id, user.id);
 
           return res.status(204).send();
         }
