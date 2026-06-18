@@ -385,8 +385,14 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		}
 	}
 
+	isPlanB := !strings.Contains(sdpFragment, "a=mid:") || 
+           strings.Contains(sdpFragment, "a=mid:audio") ||
+           strings.Contains(sdpFragment, "a=mid:video")
+
+	fmt.Printf("%d", opusType)
+	
 	fullOffer := generateSessionDescription(
-		true,
+		!isPlanB,
 		"offer",
 		sdpFragment,
 		"sendrecv",

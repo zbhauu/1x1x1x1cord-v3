@@ -384,9 +384,15 @@ func makeMedia(mid string, typ string, setup string, direction string, baseSDP s
 		}
 	}
 
+	protocol := template.protocol
+
+	if protocol == "" {
+		protocol = "UDP/TLS/RTP/SAVPF"
+	}
+
 	m := Media{
 		typ:         typ,
-		protocol:    template.protocol,
+		protocol:    protocol,
 		payloads:    payload,
 		setup:       setup,
 		mid:         mid,
@@ -441,12 +447,17 @@ func generateSessionDescription(isFirefox bool, sdpType string, baseSDP string, 
 	if isFirefox {
 		//unified plan - each ssrc has its own m= section with an mid like sdparta_5 billion
 
-		if len(remoteSSRCs) == 0 {
-			mediaList = append(mediaList, makeMedia("0", "audio", setup, direction, baseSDP, audioPayload, audioBitrate, []SSRC{}))
-		} //fallback on 0 media tracks
+		recvMedia := makeMedia("0", "audio", setup, "recvonly", baseSDP, audioPayload, audioBitrate, []SSRC{})
+    	mediaList = append(mediaList, recvMedia)
 
-		for i, s := range remoteSSRCs {
-			mid := fmt.Sprintf("%d", i)
+		midCounter := 1
+		for _, s := range remoteSSRCs {
+			if s.Typ == "video" && videoPayload == 0 {
+				continue
+			}
+
+			mid := fmt.Sprintf("%d", midCounter)
+			midCounter++
 			payload := audioPayload
 			bitrate := audioBitrate
 			sentinel := "a"
@@ -485,8 +496,20 @@ func generateSessionDescription(isFirefox bool, sdpType string, baseSDP string, 
 			}
 		}
 
-		mediaList = append(mediaList, makeMedia("audio", "audio", setup, direction, baseSDP, audioPayload, audioBitrate, audioSSRCs))
-		mediaList = append(mediaList, makeMedia("video", "video", setup, direction, baseSDP, videoPayload, videoBitrate, videoSSRCs))
+		audioDir := "sendonly"
+		if len(audioSSRCs) > 0 {
+			audioDir = "sendrecv"
+		}
+		videoDir := "inactive"
+		if len(videoSSRCs) > 0 {
+			videoDir = "sendrecv"
+		}
+
+		 mediaList = append(mediaList, makeMedia("audio", "audio", setup, audioDir, baseSDP, audioPayload, audioBitrate, audioSSRCs))
+    
+		if videoPayload != 0 {
+			mediaList = append(mediaList, makeMedia("video", "video", setup, videoDir, baseSDP, videoPayload, videoBitrate, videoSSRCs))
+		}
 	}
 
 	return makeSDP(mediaList)

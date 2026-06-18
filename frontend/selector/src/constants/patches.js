@@ -29,40 +29,6 @@ export const PATCHES = {
     compatibleBuilds: 'all',
     incompatiblePatches: [],
   },
-  modernizeWebRTC: {
-    name: 'Modernize WebRTC',
-    description:
-      'Sends more than just ICE & RTP mappings (Like the modern Discord clients) and Unified Plan support - Required for WebRTC Voice Communication',
-    authors: ['Oldcord Team'],
-    mandatory: false,
-    configurable: true,
-    defaultEnabled: true,
-    compatibleBuilds: [
-      //"january_23_2017",
-      'january_31_2017',
-      'march_30_2017',
-      'may_3_2017',
-      'may_17_2017',
-      'july_20_2017',
-      'august_17_2017',
-      'september_28_2017',
-      'october_5_2017',
-      'november_16_2017',
-      'december_21_2017',
-      'january_25_2018',
-      'february_25_2018',
-      'march_7_2018',
-      'april_1_2018',
-      'april_23_2018',
-      'may_28_2018',
-      'june_29_2018',
-      'august_28_2018',
-      'september_29_2018',
-      'november_30_2018',
-      'december_31_2018',
-    ], //Does not work for 2015/2016, and Jan 23 2017 for some reason - looking into that later
-    incompatiblePatches: ['forceWebRtcP2P'],
-  },
   forceWebRtcP2P: {
     name: 'Force WebRTC P2P',
     description:
@@ -94,6 +60,6 @@ export const PATCHES = {
       'november_30_2018',
       'december_31_2018',
     ],
-    incompatiblePatches: ['modernizeWebRTC'],
+    incompatiblePatches: [],
   },
 };

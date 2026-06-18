@@ -32,6 +32,8 @@ var (
 	pendingSessions = make(map[string]SyncData)
 	sessionMu       sync.RWMutex
 	clients         = make(map[string]*RTCClient)
+	rooms 			= make(map[string]*VoiceRoom)
+	roomsMu 		sync.RWMutex
 	rateLimits      = make(map[string]int64)
 	lastRTP         = make(map[uint32]int64)
 	lastRTPMu       sync.RWMutex

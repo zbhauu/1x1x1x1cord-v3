@@ -269,9 +269,7 @@ const globalUtils = {
     return result;
   },
   generateRTCServerURL: (): string => {
-    return _config.signaling_server_url == ''
-      ? _config.base_url + ':' + _config.signaling_server_port
-      : _config.signaling_server_url;
+    return _config.signaling_server_url ?? '';
   },
   generateString: (length: number): string => {
     let result = '';

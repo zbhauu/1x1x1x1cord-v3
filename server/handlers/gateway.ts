@@ -322,6 +322,11 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
   
   if (!socket.inCall && socket.current_guild_id) {
     let url = globalUtils.generateRTCServerURL();
+
+    if (url === '') {
+      return;
+    } //No support for RTC on this instance
+
     let token = globalUtils.generateString(30);
 
     let output = await fetch(`http://${url}/internal/sync`, {

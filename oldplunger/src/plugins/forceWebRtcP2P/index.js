@@ -8,7 +8,7 @@ export default {
   configurable: true,
   defaultEnabled: false,
   compatibleBuilds: 'all',
-  incompatiblePlugins: ['modernizeWebRTC'],
+  incompatiblePlugins: [],
   debug: false,
   patches: [
     {
