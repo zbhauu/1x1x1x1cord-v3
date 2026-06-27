@@ -4,7 +4,7 @@
   "secure": false,
   "base_url": "onex1x1x1cord2.onrender.com",
   "gateway_url": "",
-  "assets_cdn_url": "https://cdn.oldcordapp.com",
+  "assets_cdn_url": "https://onex1x1x1cord3.onrender.com",
   "media_server_public_ip": false,
   "signaling_server_url": "",
   "signaling_server_port": 5000,
