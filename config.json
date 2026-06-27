@@ -2,7 +2,7 @@
   "token_secret": "35c8...",
   "ack_secret": "19ac...",
   "secure": false,
-  "base_url": "oldcord-backend.onrender.com",
+  "base_url": "onex1x1x1cord2.onrender.com",
   "gateway_url": "",
   "assets_cdn_url": "https://cdn.oldcordapp.com",
   "media_server_public_ip": false,
@@ -65,11 +65,11 @@
     "enabled": true
   },
   "db_config": {
-    "host": "dpg-d8vse7u7r5hc73akdggg-a",
+    "host": "dpg-d8vstpgk1i2s73f4jpv0-a",
     "port": 5432,
-    "database": "oldcord_db",
-    "user": "oldcord_db_user",
-    "password": "FStemDGgLzQdEsiOPrqXVwhwNZBqeHEP"
+    "database": "oldcord_db_kl4z",
+    "user": "oldcord_db_kl4z_user",
+    "password": "SxdNhOEglKyEwROFPI7TKU9kThEZfLB1"
   },
   "email_config": {
     "fromAddress": "support@example.com",
@@ -95,7 +95,7 @@
     "embeds": { "max": 10 }
   },
   "trusted_users": [],
-  "custom_invite_url": "oldcord-backend.onrender.com",
+  "custom_invite_url": "onex1x1x1cord2.onrender.com",
   "integration_config": [],
   "ratelimit_config": {
     "enabled": false,
