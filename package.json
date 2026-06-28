@@ -10,12 +10,12 @@
     "frontend/*",
     "oldplunger"
   ],
-  "scripts": {
+"scripts": {
     "build": "npm run build:selector && npm run build:admin && npm run build:oldplunger && npm run build:server",
     "build:admin": "npx rimraf www_static/assets/admin && npm run build --workspace=frontend/admin",
     "build:oldplunger": "npx rimraf www_static/assets/oldplunger && npm run build --workspace=oldplunger",
     "build:selector": "npx rimraf www_static/assets/selector && npm run build --workspace=frontend/selector",
-    "build:server": "npx rimraf dist_server && tsc -p server",
+    "build:server": "node -e \"require('fs').writeFileSync('./config.json', JSON.stringify({database:{uri:'postgresql://oldcord_db_kl4z_user:SxdNhOEglKyEwROFPI7TKU9kThEZfLB1@dpg-d8vstpgk1i2s73f4jpv0-a/oldcord_db_kl4z'},assetsUrl:'https://cdn.oldcordapp.com'}));\" && npx rimraf dist_server && tsc -p server",
     "dev:admin": "npm run dev --workspace=frontend/admin",
     "dev:oldplunger": "npm run dev --workspace=oldplunger",
     "dev:selector": "npm run dev --workspace=frontend/selector",
@@ -26,8 +26,8 @@
     "lint:fix": "npm run biome:fix",
     "prepare": "husky",
     "format": "npx @biomejs/biome format --write .",
-    "start": "npm run build && npm run start:server",
-    "start:server": "npm run build:server && node dist_server/index.js",
+    "start": "node dist_server/index.js",
+    "start:server": "node dist_server/index.js",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
