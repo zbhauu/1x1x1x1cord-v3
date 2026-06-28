@@ -15,7 +15,7 @@
     "build:admin": "npx rimraf www_static/assets/admin && npm run build --workspace=frontend/admin",
     "build:oldplunger": "npx rimraf www_static/assets/oldplunger && npm run build --workspace=oldplunger",
     "build:selector": "npx rimraf www_static/assets/selector && npm run build --workspace=frontend/selector",
-    "build:server": "npx rimraf dist_server && tsc -p server && node -e \"const fs = require('fs'); const file = './dist_server/helpers/utils/globalutils.js'; if (fs.existsSync(file)) { const patch = '\\nconfig.database = { uri: \\'postgresql://oldcord_db_kl4z_user:SxdNhOEglKyEwROFPI7TKU9kThEZfLB1@dpg-d8vstpgk1i2s73f4jpv0-a/oldcord_db_kl4z\\' };\\nconfig.assetsUrl = \\'https://cdn.oldcordapp.com\\';\\n'; fs.appendFileSync(file, patch); }\"",
+    "build:server": "npx rimraf dist_server && tsc -p server && node -e \"const fs = require('fs'); const file = './dist_server/helpers/utils/globalutils.js'; if (fs.existsSync(file)) { let content = fs.readFileSync(file, 'utf8'); const replacement = '{ database: { uri: \\'postgresql://oldcord_db_kl4z_user:SxdNhOEglKyEwROFPI7TKU9kThEZfLB1@dpg-d8vstpgk1i2s73f4jpv0-a/oldcord_db_kl4z\\' }, assetsUrl: \\'https://cdn.oldcordapp.com\\' }'; content = content.replace(/JSON\\.parse\\(fs\\.readFileSync\\([^)]+\\)[^)]*\\)/g, replacement).replace(/JSON\\.parse\\(configFile[^)]*\\)/g, replacement); fs.writeFileSync(file, content); }\"",
     "dev:admin": "npm run dev --workspace=frontend/admin",
     "dev:oldplunger": "npm run dev --workspace=oldplunger",
     "dev:selector": "npm run dev --workspace=frontend/selector",
